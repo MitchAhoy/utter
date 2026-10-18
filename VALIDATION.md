@@ -10,7 +10,7 @@ Verified on 19 October 2026 on this Apple Silicon Mac with Xcode 27.1, Swift 6 s
 | Debug app and test-bundle compilation | Pass |
 | XCTest via `scripts/test-local.sh` | **91 tests, 0 failures, 0 skipped** |
 | All ten settings pages constructed and rendered | Pass: native UI smoke test with fake credentials and temporary history |
-| Release app build | Pass |
+| Release app build and sustained process launch | Pass |
 | Debug/Release metadata, arm64, microphone entitlement and non-sandboxed configuration | Pass |
 | Deep signature verification including embedded Sparkle | Pass, ad-hoc development signature |
 | Local DMG creation, checksum verification and read-only mounted app validation | Pass |
@@ -48,4 +48,4 @@ The user confirmed push-to-talk recording, debug WAV playback, sample insertion 
 - Optional features: real spoken dictionary/snippet behavior, app-specific style quality, command selection behavior, history interactions and retention in daily use.
 - Public release: Apple Developer ID signing, notarization/stapling, public GitHub release/appcast hosting, actual Sparkle update installation and Homebrew tap installation. Scripts/integration are implemented; no public release has been published.
 
-This Mac has no configured Apple Development or Developer ID identity. The local installer is ad-hoc signed, not notarized. Permission grants may need refreshing for the final build; stable signing requires a consistent certificate and team. Private signing keys, notarization credentials and API keys have not been generated or stored by this work.
+This Mac has no configured Apple Development or Developer ID identity. The local installer is ad-hoc signed, not notarized. Hardened runtime is disabled for these ad-hoc development builds because macOS cannot match the absent team IDs for Sparkle; certificate-based development signing and the Developer ID release script enable it. An initial Release launch caught this configuration mismatch; the development config and bundle validation script now prevent it. Permission grants may need refreshing for the final build; stable signing requires a consistent certificate and team. Private signing keys, notarization credentials and API keys have not been generated or stored by this work.

@@ -15,6 +15,11 @@ test -n "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$pl
 test -x "$executable_path"
 lipo -verify_arch arm64 "$executable_path"
 codesign --verify --strict --verbose=2 "$app_path"
+signature_description="$(codesign -dv "$app_path" 2>&1)"
+if [[ "$signature_description" == *"(adhoc,runtime)"* ]] && test -d "$app_path/Contents/Frameworks/Sparkle.framework"; then
+    echo 'FAIL: Ad-hoc builds cannot use hardened-runtime team validation with Sparkle. Use the development signing config or a real signing identity.' >&2
+    exit 1
+fi
 codesign -d --entitlements :- "$app_path" > "$entitlements_path" 2>/dev/null
 test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' "$entitlements_path")" = true
 if /usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$entitlements_path" 2>/dev/null | /usr/bin/grep -q true; then

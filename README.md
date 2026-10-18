@@ -10,7 +10,7 @@ Hold your shortcut, speak, and release. Utter transcribes, optionally cleans the
 
 ## Install and start
 
-For this local build, open `build/distribution/Utter-local.dmg`, drag Utter to Applications, and launch that copy. Quit any development copy first. This package is ad-hoc signed for local testing, not notarized for public distribution. Use the same app location when granting permissions and configuring launch at login.
+For this local build, open `build/distribution/Utter-local.dmg`, drag Utter to Applications, and launch that copy. Quit any development copy first. This package is ad-hoc signed for local testing, with hardened runtime off because ad-hoc signatures have no team ID for framework validation. Developer ID releases enable hardened runtime and notarization. Use the same app location when granting permissions and configuring launch at login.
 
 1. Open the waveform menu bar icon → Settings → Permissions. Allow Microphone and enable this copy of Utter in Accessibility. **Reveal This App** locates the exact build.
 2. Under Transcription choose **On-device dictation**, select Small or Large v3 Turbo, and click **Download & Prepare Model**. Large v3 Turbo is the initial model choice; Small prepares faster. Downloads explicitly fetch public Core ML models and tokenizer files from Hugging Face to `~/Library/Application Support/Utter/Models`.

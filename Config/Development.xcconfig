@@ -2,6 +2,9 @@
 // Configure a consistent personal team before testing macOS permissions.
 CODE_SIGN_STYLE = Manual
 CODE_SIGN_IDENTITY = -
+// Ad-hoc signatures have no team ID for hardened-runtime framework validation.
+// Developer ID releases explicitly enable hardened runtime in release.sh.
+ENABLE_HARDENED_RUNTIME = NO
 #include? "Signing.local.xcconfig"
 
 // Signed releases set these through the release script; empty disables updates.

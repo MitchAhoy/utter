@@ -16,7 +16,6 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     MACOSX_DEPLOYMENT_TARGET: "14.0"
     ENABLE_APP_SANDBOX: NO
-    ENABLE_HARDENED_RUNTIME: YES
 packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle.git
