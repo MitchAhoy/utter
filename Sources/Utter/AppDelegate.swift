@@ -32,7 +32,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(quitItem)
         item.menu = menu
         statusItem = item
-        if NSClassFromString("XCTestCase") == nil { model.start() }
+        if NSClassFromString("XCTestCase") == nil {
+            model.start()
+            if !model.accessibilityGranted || !model.microphoneGranted { showSettings() }
+        }
     }
 
     @objc private func showSettings() {

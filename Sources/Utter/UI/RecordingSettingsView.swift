@@ -6,6 +6,13 @@ struct RecordingSettingsView: View {
 
     var body: some View {
         Form {
+            if !model.accessibilityGranted || !model.microphoneGranted {
+                Section("Set up Utter") {
+                    Text("Allow Microphone access and enable Utter in Accessibility using the buttons below. Then focus a text field and hold your shortcut to record.")
+                    Text("Audio stays on this Mac. Transcription is not connected yet.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
             Section("Push to talk") {
                 Picker("Hold to record", selection: $model.hotkey) {
                     ForEach(HotkeyChoice.allCases) { choice in
@@ -23,6 +30,19 @@ struct RecordingSettingsView: View {
                 }
                 Toggle("Play start and stop sounds", isOn: $model.sounds)
                 Text("Taps shorter than 250 ms are ignored. Recordings stop after 5 minutes.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Test text insertion") {
+                TextField("Sample text", text: $model.sampleText, axis: .vertical)
+                    .lineLimit(2...4)
+                    .disabled(model.pasteTestArmed || model.isRecording)
+                Button(model.pasteTestArmed ? "Cancel Paste Test" : "Arm Paste Test") {
+                    model.togglePasteTest()
+                }
+                .disabled(model.isRecording || !model.accessibilityGranted || model.isProcessing)
+                Text(model.pasteTestArmed
+                     ? "Armed. Focus a text field in another app, then hold and release your shortcut. This inserts the sample above once."
+                     : "Test pasting without an API. The next recording inserts this sample text instead of transcribing speech. Short taps leave the test armed.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Permissions") {
@@ -52,7 +72,7 @@ struct RecordingSettingsView: View {
                 Label(model.isRecording ? "Recording…" : model.status,
                       systemImage: model.isRecording ? "mic.fill" : "info.circle")
                     .font(.callout).textSelection(.enabled)
-                Text("Phase 1 · Audio recording only · No transcription or API calls")
+                Text("Recording + paste test · No transcription or API calls")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

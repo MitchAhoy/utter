@@ -24,7 +24,7 @@ private struct PillView: View {
                 Text(String(format: "%d:%02d", seconds / 60, seconds % 60)).monospacedDigit()
             case .processing:
                 ProgressView().controlSize(.small)
-                Text("Finishing recording…")
+                Text("Processing…")
             case .complete(let message):
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                 Text(message)

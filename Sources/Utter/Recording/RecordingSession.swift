@@ -118,6 +118,12 @@ final class RecordingSession {
         onStateChange?()
     }
 
+    func showProcessing() {
+        guard !isRecording else { return }
+        dismiss?.cancel()
+        overlay.show(.processing)
+    }
+
     func completed(_ message: String) {
         guard !isRecording else { return }
         overlay.show(.complete(message))
