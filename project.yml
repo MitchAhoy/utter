@@ -17,12 +17,18 @@ settings:
     MACOSX_DEPLOYMENT_TARGET: "14.0"
     ENABLE_APP_SANDBOX: NO
     ENABLE_HARDENED_RUNTIME: YES
+packages:
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    exactVersion: 3.1.0
 targets:
   Utter:
     type: application
     platform: macOS
     sources:
       - Sources/Utter
+    dependencies:
+      - package: KeyboardShortcuts
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.utter.app
@@ -32,6 +38,19 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Config/Utter.entitlements
         MARKETING_VERSION: 0.1.0
         CURRENT_PROJECT_VERSION: 1
+  UtterTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests/UtterTests
+    dependencies:
+      - target: Utter
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: org.utter.tests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Utter.app/Contents/MacOS/Utter"
+        BUNDLE_LOADER: "$(TEST_HOST)"
 schemes:
   Utter:
     build:
@@ -39,5 +58,9 @@ schemes:
         Utter: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - UtterTests
     archive:
       config: Release
