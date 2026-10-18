@@ -8,12 +8,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = AppModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if NSClassFromString("XCTestCase") == nil,
+           let bundleID = Bundle.main.bundleIdentifier,
+           let existing = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+            .filter({ $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && !$0.isTerminated })
+            .first {
+            if let url = existing.bundleURL { NSWorkspace.shared.open(url) }
+            NSApp.terminate(nil)
+            return
+        }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.autosaveName = "Utter.MenuBar"
+        item.isVisible = true
+        item.button?.title = "Utter"
         if let image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Utter") {
             image.isTemplate = true
+            image.size = NSSize(width: 16, height: 16)
             item.button?.image = image
-        } else {
-            item.button?.title = "U"
+            item.button?.imagePosition = .imageLeading
         }
         item.button?.toolTip = "Utter"
         item.button?.setAccessibilityLabel("Utter")
@@ -36,6 +48,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.start()
             if !model.accessibilityGranted || !model.microphoneGranted { showSettings() }
         }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        statusItem?.isVisible = true
+        showSettings()
+        return true
     }
 
     @objc private func showSettings() {
