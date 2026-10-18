@@ -29,6 +29,11 @@ final class AppModel: ObservableObject {
         }
     }
     @Published private(set) var microphones: [AudioInputDevice] = []
+    let features = FeatureSettings()
+    let cloud: CloudSettings
+    let updates = UpdateController()
+    private let historyStore: HistoryStore
+    lazy var history = HistoryController(settings: features, store: historyStore)
     let localModels = LocalModelController()
     let launchAtLogin = LaunchAtLoginController()
     @Published private(set) var accessibilityGranted = false
@@ -44,6 +49,9 @@ final class AppModel: ObservableObject {
         let context: DictationContext
         let provider: any TranscriptionProvider
         let path: DictationPath
+        let cleaner: any CleanupProvider
+        var selection: Task<String, Error>? = nil
+        var editor: (any CommandProvider)? = nil
     }
     private var captureRequest: CaptureRequest?
     private let pipeline = DictationPipeline(inserter: ClipboardTextInserter())
@@ -53,8 +61,12 @@ final class AppModel: ObservableObject {
     private lazy var session = RecordingSession(recorder: recorder, overlay: RecordingOverlay())
     private var permissionTask: Task<Void, Never>?
     private var generation = 0
+    private var commandRecording = false
+    private var commandShortcutActive = false
 
-    init() {
+    init(cloud: CloudSettings = CloudSettings(), historyStore: HistoryStore = HistoryStore()) {
+        self.cloud = cloud
+        self.historyStore = historyStore
         let defaults = UserDefaults.standard
         mode = DictationMode(rawValue: defaults.string(forKey: "dictationMode") ?? "") ?? .local
         language = defaults.string(forKey: "dictationLanguage") ?? ""
@@ -64,6 +76,12 @@ final class AppModel: ObservableObject {
         debugRecording = defaults.bool(forKey: "debugRecording")
         monitor.choice = hotkey
         recorder.selectedDeviceUID = microphoneUID
+        session.onError = { [weak self] message in self?.status = message }
+        localModels.onReady = { [weak self] in self?.status = "Ready · On-device — hold your shortcut to dictate." }
+        cloud.onDisabled = { [weak self] in self?.pipeline.cancel() }
+        KeyboardShortcuts.onKeyDown(for: .editSelection) { [weak self] in self?.handleCommandKey(down: true) }
+        KeyboardShortcuts.onKeyUp(for: .editSelection) { [weak self] in self?.handleCommandKey(down: false) }
+        KeyboardShortcuts.disable(.editSelection)
         session.onSound = { [weak self] starting in
             guard self?.sounds == true else { return }
             NSSound(named: starting ? "Tink" : "Pop")?.play()
@@ -74,6 +92,9 @@ final class AppModel: ObservableObject {
             if self.isRecording { self.generation += 1 }
         }
         session.onClip = { [weak self] audio in self?.received(audio) }
+        pipeline.onResult = { [weak self] raw, cleaned, context, path in
+            self?.history.record(raw: raw, cleaned: cleaned, context: context, path: path)
+        }
         pipeline.onEvent = { [weak self] event in
             guard let self else { return }
             switch event {
@@ -82,8 +103,8 @@ final class AppModel: ObservableObject {
                 self.session.showProcessing(path: self.pipeline.activePath?.title ?? "")
             case .inserted:
                 let sample = self.pipeline.activePath == .sample
-                self.status = sample ? "Sample text inserted." : "Dictation inserted · On-device."
-                self.session.completed(sample ? "Sample text inserted" : "Inserted · On-device")
+                self.status = sample ? "Sample text inserted." : "Inserted · \(self.pipeline.activePath?.title ?? "Dictation")"
+                self.session.completed(sample ? "Sample text inserted" : "Inserted · \(self.pipeline.activePath?.title ?? "Dictation")")
             case .failed(let message):
                 self.status = message
                 self.session.showError(message)
@@ -100,6 +121,7 @@ final class AppModel: ObservableObject {
     func start() {
         refreshPermissions()
         refreshMicrophones()
+        cloud.refreshKeys()
         localModels.prepare(download: false)
         permissionTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -112,22 +134,33 @@ final class AppModel: ObservableObject {
     func refreshPermissions() {
         accessibilityGranted = AXIsProcessTrusted()
         microphoneGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        refreshCommandShortcut()
         if !microphoneGranted && session.isRecording {
+            captureRequest?.selection?.cancel()
+            commandRecording = false
             captureRequest = nil
             session.cancel()
             session.showError("Microphone access was revoked. Allow access in System Settings.")
         }
         if !accessibilityGranted {
+            captureRequest?.selection?.cancel()
+            captureRequest = nil
+            commandRecording = false
+            session.cancel()
             if shortcutReady { monitor.stop() }
             pipeline.cancel()
             shortcutReady = false
+            status = "Enable this copy of Utter in Accessibility under Permissions to use the shortcut and paste."
             return
         }
-        guard !shortcutReady else { return }
+        if shortcutReady && monitor.isRunning { return }
+        if shortcutReady { monitor.stop(); shortcutReady = false }
         do {
             try monitor.start { [weak self] event in self?.handleHotkey(event) }
             shortcutReady = true
-            status = microphoneGranted ? "Ready — hold your shortcut to record." : "Allow microphone access to record."
+            status = microphoneGranted ? (mode == .local && !localModels.isReady
+                ? "Prepare a speech model in Transcription settings to start dictation."
+                : "Ready — hold your shortcut to record.") : "Allow microphone access to record."
         } catch {
             status = error.localizedDescription
         }
@@ -206,33 +239,94 @@ final class AppModel: ObservableObject {
 
     func refreshMicrophones() { microphones = AudioInputDevices.available() }
 
+    func retryHotkeyMonitor() {
+        monitor.stop()
+        shortcutReady = false
+        refreshPermissions()
+    }
+
+    func refreshCommandShortcut() {
+        let enabled = features.commandEnabled && accessibilityGranted
+        guard enabled != commandShortcutActive else { return }
+        commandShortcutActive = enabled
+        if enabled { KeyboardShortcuts.enable(.editSelection) }
+        else { KeyboardShortcuts.disable(.editSelection) }
+    }
+
+    private func makeCapture(command: Bool = false) throws -> CaptureRequest {
+        guard pipeline.canAcceptClip else { throw PipelineError.queueFull }
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
+            throw RecordingError.message("Focus a text field in another app before dictating.")
+        }
+        let provider: any TranscriptionProvider
+        let path: DictationPath
+        if pasteTestArmed && !command {
+            provider = SampleTextProvider(text: sampleText); path = .sample
+        } else {
+            switch mode {
+            case .local, .recordingOnly:
+                guard localModels.isReady else { throw LocalModelError.notInstalled }
+                provider = localModels.provider; path = .local
+            case .cloud:
+                guard cloud.enabled else { throw CloudError.disabled }
+                guard cloud.storedKeys.contains(cloud.provider.service) else { throw CloudError.missingKey(cloud.provider.service) }
+                provider = cloud.transcriber(); path = .cloud
+            case .auto:
+                let remote = cloud.enabled && cloud.storedKeys.contains(cloud.provider.service) ? cloud.transcriber() : nil
+                guard remote != nil || localModels.isReady else { throw LocalModelError.notInstalled }
+                provider = RoutedTranscriptionProvider(cloud: remote, local: localModels.isReady ? localModels.provider : nil,
+                                                       allowFallback: true)
+                path = .auto
+            }
+        }
+        let target = InsertionTarget(processID: app.processIdentifier, appName: app.localizedName ?? "App", bundleID: app.bundleIdentifier ?? "")
+        let terms = features.terms
+        let context = DictationContext(target: target, language: language.isEmpty ? nil : language,
+                                       prompt: terms.isEmpty ? nil : terms.joined(separator: ", "), dictionary: terms,
+                                       style: features.style(for: target.bundleID))
+        return CaptureRequest(context: context, provider: provider, path: command ? .command : path,
+                              cleaner: path == .sample ? PassthroughProvider() : cloud.cleaner())
+    }
+
     private func handleHotkey(_ event: HotkeyEvent) {
+        if commandRecording && event != .cancel { return }
+        if event == .cancel { commandRecording = false; captureRequest?.selection?.cancel() }
         if event == .down, !session.isRecording {
             captureRequest = nil
-            if pasteTestArmed || mode == .local {
-                guard pipeline.canAcceptClip else {
-                    session.showError(PipelineError.queueFull.localizedDescription)
-                    return
-                }
-                guard pasteTestArmed || localModels.isReady else {
-                    session.showError(LocalModelError.notInstalled.localizedDescription)
-                    return
-                }
-                guard let app = NSWorkspace.shared.frontmostApplication,
-                      app.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
-                    session.showError("Focus a text field in another app before dictating.")
-                    return
-                }
-                let target = InsertionTarget(processID: app.processIdentifier,
-                                             appName: app.localizedName ?? "App", bundleID: app.bundleIdentifier ?? "")
-                let context = DictationContext(target: target, language: language.isEmpty ? nil : language)
-                captureRequest = CaptureRequest(context: context,
-                                                provider: pasteTestArmed ? SampleTextProvider(text: sampleText) : localModels.provider,
-                                                path: pasteTestArmed ? .sample : .local)
+            if pasteTestArmed || mode != .recordingOnly {
+                do { captureRequest = try makeCapture() }
+                catch { session.showError(error.localizedDescription); return }
             }
         }
         session.handle(event)
-        if event == .up || event == .cancel { captureRequest = nil }
+        if event == .up || event == .cancel {
+            captureRequest?.selection?.cancel()
+            captureRequest = nil
+        }
+    }
+
+    private func handleCommandKey(down: Bool) {
+        if !down {
+            guard commandRecording else { return }
+            session.handle(.up)
+            captureRequest?.selection?.cancel()
+            captureRequest = nil
+            commandRecording = false
+            return
+        }
+        guard features.commandEnabled, !session.isRecording, !commandRecording else { return }
+        do {
+            guard cloud.enabled else { throw CloudError.disabled }
+            guard cloud.storedKeys.contains(.anthropic) else { throw CloudError.missingKey(.anthropic) }
+            var request = try makeCapture(command: true)
+            let target = request.context.target
+            request.selection = Task { try await ClipboardSelectionReader().read(target: target) }
+            request.editor = cloud.claude(timeout: 30)
+            captureRequest = request
+            commandRecording = true
+            session.handle(.down)
+        } catch { session.showError(error.localizedDescription) }
     }
 
     private func received(_ audio: RecordedAudio) {
@@ -242,7 +336,9 @@ final class AppModel: ObservableObject {
             isProcessing = true
             pipeline.submit(audio: audio, context: request.context, transcriber: request.provider,
                             path: request.path, timeout: .seconds(max(30, audio.duration * 3 + 15)),
-                            debugTimings: debugRecording)
+                            debugTimings: debugRecording, cleaner: request.cleaner,
+                            cleanupLimit: .seconds(max(0.2, cloud.cleanupTimeout)), transforms: features.transforms,
+                            selection: request.selection, editor: request.editor)
             if debugRecording { saveDebugAudio(audio) }
             return
         }
@@ -277,7 +373,9 @@ final class AppModel: ObservableObject {
     }
 
     @objc private func willSleep() {
+        captureRequest?.selection?.cancel()
         captureRequest = nil
+        commandRecording = false
         pasteTestArmed = false
         pipeline.cancel()
         session.cancel()
@@ -287,6 +385,8 @@ final class AppModel: ObservableObject {
         localModels.cancel()
         permissionTask?.cancel()
         permissionTask = nil
+        KeyboardShortcuts.disable(.editSelection)
+        captureRequest?.selection?.cancel()
         monitor.stop()
         pipeline.cancel()
         session.cancel()

@@ -1,0 +1,21 @@
+name: Build and test
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          brew install xcodegen
+      - name: Generate
+        run: xcodegen generate
+      - name: Test without API keys or model downloads
+        run: xcodebuild -quiet -packageAuthorizationProvider netrc -project Utter.xcodeproj -scheme Utter -configuration Debug -destination 'platform=macOS' -derivedDataPath build test
+      - name: Release build
+        run: xcodebuild -quiet -packageAuthorizationProvider netrc -project Utter.xcodeproj -scheme Utter -configuration Release -destination 'generic/platform=macOS' ARCHS=arm64 ONLY_ACTIVE_ARCH=NO -derivedDataPath build build
+      - name: Validate release bundle
+        run: bash scripts/verify-phase0.sh build/Build/Products/Release/Utter.app

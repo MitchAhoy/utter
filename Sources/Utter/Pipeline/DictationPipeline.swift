@@ -15,6 +15,11 @@ final class DictationPipeline {
         let path: DictationPath
         let debugTimings: Bool
         let released: ContinuousClock.Instant
+        let cleaner: any CleanupProvider
+        let cleanupLimit: Duration
+        let transforms: TextTransformOptions
+        let selection: Task<String, Error>?
+        let editor: (any CommandProvider)?
     }
     private let inserter: any TextInserter
     private let cleanup: any CleanupProvider
@@ -25,6 +30,7 @@ final class DictationPipeline {
     private var worker: Task<Void, Never>?
     private var active = false
     private(set) var activePath: DictationPath?
+    var onResult: (@MainActor (String, String, DictationContext, DictationPath) -> Void)?
     var onEvent: (@MainActor (PipelineEvent) -> Void)?
     var canAcceptClip: Bool { jobs.count + (active ? 1 : 0) < maximumPending }
 
@@ -38,10 +44,15 @@ final class DictationPipeline {
 
     @discardableResult
     func submit(audio: RecordedAudio, context: DictationContext, transcriber: any TranscriptionProvider,
-                path: DictationPath = .sample, timeout: Duration? = nil, debugTimings: Bool = false) -> Bool {
+                path: DictationPath = .sample, timeout: Duration? = nil, debugTimings: Bool = false,
+                cleaner: (any CleanupProvider)? = nil, cleanupLimit: Duration? = nil,
+                transforms: TextTransformOptions = TextTransformOptions(),
+                selection: Task<String, Error>? = nil, editor: (any CommandProvider)? = nil) -> Bool {
         guard canAcceptClip else { onEvent?(.failed(PipelineError.queueFull.localizedDescription)); return false }
         jobs.append(Job(audio: audio, context: context, transcriber: transcriber,
-                        timeout: timeout ?? transcriptionTimeout, path: path, debugTimings: debugTimings, released: .now))
+                        timeout: timeout ?? transcriptionTimeout, path: path, debugTimings: debugTimings, released: .now,
+                        cleaner: cleaner ?? cleanup, cleanupLimit: cleanupLimit ?? cleanupTimeout,
+                        transforms: transforms, selection: selection, editor: editor))
         startWorkerIfNeeded()
         return true
     }
@@ -68,6 +79,7 @@ final class DictationPipeline {
     }
 
     private func process(_ job: Job) async {
+        defer { job.selection?.cancel() }
         var raw: String?
         let released = job.released
         do {
@@ -79,20 +91,40 @@ final class DictationPipeline {
                 throw PipelineError.emptyTranscript
             }
             raw = transcript
+            var resolvedPath = job.path
+            if job.path == .auto, let router = job.transcriber as? RoutedTranscriptionProvider {
+                resolvedPath = await router.usedLocal ? .local : .cloud
+                activePath = resolvedPath
+                onEvent?(.processing)
+            }
             if job.debugTimings { StageTimingLog.record("transcript", since: released, path: job.path) }
             let cleaned: String
-            do {
-                let cleaner = cleanup
-                let candidate = try await withStageTimeout(cleanupTimeout) {
-                    try await cleaner.clean(raw: transcript, context: job.context)
+            if let selection = job.selection, let editor = job.editor {
+                let selected = try await withTaskCancellationHandler {
+                    try await selection.value
+                } onCancel: { selection.cancel() }
+                cleaned = try await withStageTimeout(.seconds(30)) {
+                    try await editor.edit(selection: selected, instruction: transcript, context: job.context)
                 }
-                cleaned = candidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? transcript : candidate
-            } catch {
-                try Task.checkCancellation()
-                cleaned = transcript
+                guard !cleaned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CloudError.invalidResponse }
+            } else {
+                var candidate = transcript
+                if transcript.split(whereSeparator: \.isWhitespace).count >= 4 {
+                    do {
+                        candidate = try await withStageTimeout(job.cleanupLimit) {
+                            try await job.cleaner.clean(raw: transcript, context: job.context)
+                        }
+                    } catch {
+                        try Task.checkCancellation()
+                        candidate = transcript
+                    }
+                }
+                if candidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { candidate = transcript }
+                cleaned = job.transforms.apply(to: candidate)
             }
             try Task.checkCancellation()
             if job.debugTimings { StageTimingLog.record("cleaned", since: released, path: job.path) }
+            onResult?(transcript, cleaned, job.context, resolvedPath)
             try await inserter.insert(cleaned, target: job.context.target)
             try Task.checkCancellation()
             if job.debugTimings { StageTimingLog.record("pasted", since: released, path: job.path) }
@@ -113,6 +145,7 @@ final class DictationPipeline {
     }
 
     func cancel() {
+        for job in jobs { job.selection?.cancel() }
         jobs.removeAll()
         worker?.cancel()
     }

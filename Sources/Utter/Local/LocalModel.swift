@@ -16,14 +16,23 @@ enum LocalModel: String, CaseIterable, Codable, Identifiable, Sendable {
 }
 
 enum DictationMode: String, CaseIterable, Identifiable {
-    case local, recordingOnly
+    case local, cloud, auto, recordingOnly
     var id: String { rawValue }
-    var title: String { self == .local ? "On-device dictation" : "Recording only" }
+    var title: String {
+        switch self {
+        case .local: "On-device dictation"
+        case .cloud: "Cloud transcription"
+        case .auto: "Auto · cloud with local fallback"
+        case .recordingOnly: "Recording only"
+        }
+    }
 }
 
 enum DictationPath: String, Sendable {
-    case sample, local
-    var title: String { self == .local ? "On-device" : "Sample test" }
+    case sample, local, cloud, auto, command
+    var title: String {
+        switch self { case .local: "On-device"; case .sample: "Sample test"; case .cloud: "Cloud"; case .auto: "Auto"; case .command: "Command" }
+    }
 }
 
 enum LocalModelError: LocalizedError {

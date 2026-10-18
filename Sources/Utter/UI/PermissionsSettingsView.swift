@@ -19,7 +19,7 @@ struct PermissionsSettingsView: View {
                         .disabled(model.microphoneGranted)
                     Button("Open Microphone Settings…") { model.openMicrophone() }
                 }
-                Button("Retry Shortcut Monitor") { model.refreshPermissions() }
+                Button("Retry Shortcut Monitor") { model.retryHotkeyMonitor() }
                 if model.accessibilityGranted && !model.shortcutReady {
                     Text("If the monitor still cannot start, remove and re-add Utter in Accessibility, then relaunch.")
                         .font(.caption).foregroundStyle(.secondary)

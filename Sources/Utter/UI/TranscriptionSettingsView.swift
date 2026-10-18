@@ -3,6 +3,7 @@ import SwiftUI
 struct TranscriptionSettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var local: LocalModelController
+    @ObservedObject var cloud: CloudSettings
     private var busy: Bool { model.isRecording || model.isProcessing || local.state.isPreparing }
 
     var body: some View {
@@ -39,14 +40,12 @@ struct TranscriptionSettingsView: View {
                     Button("Retry Download & Preparation") { local.prepare(download: true) }
                         .disabled(busy)
                 }
-                Text("Downloads come from Hugging Face and stay in Application Support/Utter/Models. Once prepared, transcription works offline. Recordings are never uploaded.")
+                Text("Downloads come from Hugging Face and stay in Application Support/Utter/Models. Once prepared, transcription works offline. On-device mode never uploads recordings.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("Cloud") {
-                Text("Cloud and Auto modes are deferred while APIs are disconnected. No API keys are needed for on-device dictation.")
-                    .foregroundStyle(.secondary)
-            }
+            CloudCredentialsView(cloud: cloud)
         }
         .formStyle(.grouped)
+        .onAppear { cloud.refreshKeys() }
     }
 }

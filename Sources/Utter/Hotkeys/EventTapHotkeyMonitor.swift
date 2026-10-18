@@ -3,12 +3,14 @@ import ApplicationServices
 import KeyboardShortcuts
 
 extension KeyboardShortcuts.Name {
+    static let editSelection = Self("editSelection", initial: .init(.space, modifiers: [.control, .option]))
     static let pushToTalk = Self("pushToTalk")
 }
 
 @MainActor
 protocol HotkeyMonitor: AnyObject {
     var choice: HotkeyChoice { get set }
+    var isRunning: Bool { get }
     func start(handler: @escaping @MainActor (HotkeyEvent) -> Void) throws
     func stop()
 }
@@ -27,6 +29,10 @@ final class EventTapHotkeyMonitor: HotkeyMonitor {
     private var source: CFRunLoopSource?
     private var handler: (@MainActor (HotkeyEvent) -> Void)?
     private var state = HotkeyState()
+    var isRunning: Bool {
+        guard let tap else { return false }
+        return CFMachPortIsValid(tap) && CGEvent.tapIsEnabled(tap: tap)
+    }
 
     init() {
         KeyboardShortcuts.onKeyDown(for: .pushToTalk) { [weak self] in

@@ -4,6 +4,8 @@ struct DictationContext: Sendable, Equatable {
     let target: InsertionTarget
     var language: String?
     var prompt: String?
+    var dictionary: [String] = []
+    var style: AppStyle = .standard
 }
 
 /// Providers must cooperate with task cancellation so stage timeouts can finish.

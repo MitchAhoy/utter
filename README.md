@@ -1,200 +1,115 @@
 # Utter
 
-A native macOS push-to-talk dictation app built with Swift 6 and SwiftUI/AppKit.
-Requires macOS 14 or later; Apple Silicon is the primary target. MIT licensed.
+Native, open-source push-to-talk dictation for macOS 14+. Swift 6, SwiftUI and AppKit; Apple Silicon first. MIT licensed.
 
-## Current status
+![Illustration of Utter's hold, release and insertion flow](docs/dictation-flow.gif)
 
-Hold your shortcut, speak, and release to transcribe on this Mac with WhisperKit
-and paste at the cursor. Recordings stay in memory unless debug saving is enabled.
-Right Option is the default shortcut; Fn/Globe, Right Command, and a custom
-combination are selectable. Clips shorter than 250 ms are ignored; the maximum
-recording is five minutes. Completed clips queue while the next hold records.
+*Illustrated workflow; this GIF is not a recording of the app.*
 
-The previously verified recording, sample-paste, and clipboard-restoration flows
-remain available. **Recording only** preserves the earlier microphone test mode.
-The one-shot sample paste test is in General settings.
+Hold your shortcut, speak, and release. Utter transcribes, optionally cleans the text, and pastes at the cursor without changing your clipboard. Right Option is the initial shortcut; Fn/Globe, Right Command and custom combinations are available. Accidental taps under 250 ms are ignored; recordings stop at five minutes. Up to three completed/processing clips queue in order.
 
-| Build phase | Status |
+## Install and start
+
+For this local build, open `build/distribution/Utter-local.dmg`, drag Utter to Applications, and launch that copy. Quit any development copy first. This package is ad-hoc signed for local testing, not notarized for public distribution. Use the same app location when granting permissions and configuring launch at login.
+
+1. Open the waveform menu bar icon → Settings → Permissions. Allow Microphone and enable this copy of Utter in Accessibility. **Reveal This App** locates the exact build.
+2. Under Transcription choose **On-device dictation**, select Small or Large v3 Turbo, and click **Download & Prepare Model**. Large v3 Turbo is the initial model choice; Small prepares faster. Downloads explicitly fetch public Core ML models and tokenizer files from Hugging Face to `~/Library/Application Support/Utter/Models`.
+3. Wait for **Ready**, focus a text field in another app, and hold your shortcut while speaking. Cached models load on later launches without downloading and stay warm in memory.
+4. Fn users: set System Settings → Keyboard → **Press 🌐 key to → Do Nothing** to prevent emoji/dictation conflicts.
+
+General settings include microphone selection, language, optional sounds, launch at login, an API-independent sample paste test, and debug recording. The overlay never activates its window. If the selected microphone disappears, Utter reports an error instead of silently switching devices.
+
+## Add your API keys when ready
+
+No credentials ship with Utter. **Cloud requests start disabled** and saving a key does not enable them.
+
+Under Settings → Transcription, paste keys into the secure fields and Save:
+
+| Service | Used for |
 |---|---|
-| 0: native scaffold | Built and manually verified |
-| 1: hotkeys, recording, overlay | Built; core flow manually verified |
-| 2: paste, permissions, secure input | Implemented; sample insertion and clipboard restoration manually verified; cloud transcription deferred |
-| 3: Claude cleanup | Deferred while cloud APIs are disconnected |
-| 4: on-device transcription and settings | Implemented; manual checkpoint below |
-| 4: Cloud/Auto routing and API-key settings | Deferred with cloud integration |
-| 5: signed distribution and updates | Not started |
-| 6: dictionary, snippets, commands, styles, history | Not started |
+| Groq | `whisper-large-v3-turbo` transcription |
+| OpenAI, optional | `gpt-4o-mini-transcribe` transcription |
+| Anthropic | Claude cleanup and spoken editing commands |
 
-No API key, cloud speech service, or cloud cleanup is used. Cleanup currently
-passes recognized text through unchanged. The model itself may supply punctuation.
-See BUILD_PROMPT.md and PLAN.md for the full specification and phase checkpoints.
+Keys are stored only in macOS Keychain, under `org.utter.app.api-keys`; the fields never redisplay saved secrets. Remove deletes the corresponding Keychain item. Keys are not stored in preferences, history or repository files. No validation call runs when saving.
 
-## Build and run
+Enable **Allow cloud API requests**, choose Groq or OpenAI, then select Cloud or Auto. Cloud uploads audio to the selected provider. Auto tries cloud and falls back to a prepared local model on cloud errors or when cloud is unavailable. Prepare a local model first if you want offline fallback. Local mode uses local speech recognition; independently enabled Claude cleanup can still send the resulting text to Anthropic. Turn cloud access off for fully offline dictation. **Recording only** captures without transcription or insertion.
 
-Install full Xcode, open it once, and select its developer tools:
+Under Cleanup, enable Claude and choose its timeout (initially 1.5 seconds). Errors/timeouts insert the raw transcript. Fewer than four words and verbatim app styles skip cleanup. The requested model identifier defaults to `claude-haiku-5-5` from BUILD_PROMPT.md and is editable to match your Anthropic account's available models. Its live availability and output quality remain to be checked after you supply a key. The prompt treats speech as text to transform, preserves questions and identifiers, and never intentionally answers dictated questions.
+
+## Optional features
+
+Each starts disabled and has its own settings page:
+
+- **Dictionary:** one term per line, supplied to speech recognition and as cleanup context.
+- **Snippets:** a whole spoken trigger phrase expands after cleanup; matching ignores case and trailing sentence punctuation. For example, “my signature” can insert a multiline sign-off.
+- **App Styles:** choose an application or enter its bundle ID; select casual, formal, code or verbatim cleanup behavior.
+- **Commands:** select text in another app, hold Control–Option–Space (customizable), speak an edit such as “make this more concise,” and release. Requires cloud access and an Anthropic key, plus a ready transcription provider. Utter copies the selection, restores the clipboard, and replaces it with the edit. Failed edits never paste the spoken instruction over the selection. Keep the target selection unchanged until insertion completes.
+- **History:** opt-in local SQLite stores raw/cleaned text, app, time and processing path. Search, Copy Again, Re-run Cleanup, retention (1–365 days), and Clear All are provided. Audio is never included. Disabling history stops new records; use Clear All to remove existing records. Retention is enforced when saving or reading history.
+
+History uses macOS's SQLite library directly, keeping the dependency list restricted to the three permitted Swift packages. Optional automatic dictionary learning is not included.
+
+## Privacy and failure behavior
+
+No telemetry or analytics. Speech stays in memory unless **Save the last recording as a WAV file** is enabled. That debug option replaces `~/Library/Application Support/Utter/debug/last-recording.wav` with owner-only permissions; disabling it stops saving and does not delete an existing WAV. Debug stage logs contain timing/path only, never transcripts or keys.
+
+Cloud access sends audio to Groq/OpenAI for transcription and text to Anthropic for enabled cleanup/commands. Each provider's policies apply. Network access is also used for explicit model downloads and, in configured public releases, optional Sparkle updates. Development builds have no update feed or update signing key and make no update checks.
+
+Temporary paste text has transient/concealed markers. Utter restores all original clipboard items/types after approximately 300 ms only while it still owns the clipboard. New clipboard copies are preserved. If insertion fails after recognition, raw text is intentionally copied for recovery. Secure input and switching to another app block insertion. Synthetic paste has no receiving-app acknowledgment; test your destinations using [TEST_PLAN.md](TEST_PLAN.md). The app is not sandboxed because synthetic keyboard events require it.
+
+## Build and verify
+
+Install full Xcode, open it once, select its developer tools, and install XcodeGen:
 
 ```sh
 sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
-xcodebuild -version
 brew install xcodegen
 xcodegen generate
-xcodebuild -project Utter.xcodeproj -scheme Utter -configuration Debug \
-  -destination 'platform=macOS,arch=arm64' -derivedDataPath build build
-open build/Build/Products/Debug/Utter.app
+xcodebuild -packageAuthorizationProvider netrc -project Utter.xcodeproj -scheme Utter \
+  -configuration Debug -destination 'platform=macOS,arch=arm64' -derivedDataPath build test
+open -n build/Build/Products/Debug/Utter.app
 ```
 
-The project is generated from `project.yml`. Do not edit or commit generated
-Xcode projects. Direct dependencies are pinned: KeyboardShortcuts 3.1.0 and
-WhisperKit 1.1.1 (Argmax's Swift package; WhisperKit product only).
+`project.yml` is the source of truth; generated Xcode projects stay out of Git. Direct dependencies are pinned: WhisperKit 1.1.1, KeyboardShortcuts 3.1.0 and Sparkle 2.10.0. The `netrc` authorization-provider setting avoids a SwiftPM Keychain lookup hang on this development Mac; no credential file is required for these public dependencies.
 
-## Start dictating without an API
+On this Mac, Xcode’s app-host test launcher can stall before XCTest starts. `bash scripts/test-local.sh` builds for testing and runs the identical compiled XCTest bundle directly, preserving runtime instrumentation. CI retains the standard `xcodebuild test` path.
 
-1. Open Utter's menu → Settings → Permissions. Allow Microphone access and enable
-   this Utter.app in Accessibility. Use **Reveal This Utter App** to find the
-   exact build if macOS requires adding it manually.
-2. Open Transcription. Select **On-device dictation**, then a model:
-   **Large v3 Turbo** is the default for accuracy; **Small** prepares faster.
-3. Click **Download & Prepare Model**. This explicitly downloads the public
-   Core ML model and tokenizer from Hugging Face into
-   `~/Library/Application Support/Utter/Models`. Progress and preparation errors
-   appear beside the button. You can cancel and retry.
-4. Wait for **Ready · On-device**, focus a text field in another app, then hold
-   your shortcut, speak, and release. No sample test needs to be armed.
-5. Later launches load the cached model without downloading it again. The model
-   stays warm in memory. Transcription uses in-memory 16 kHz mono audio and a
-   local tokenizer; it has no network fallback.
+[VALIDATION.md](VALIDATION.md) records actual verification results and limits. [TEST_PLAN.md](TEST_PLAN.md) covers interactive testing after the build. XCTest uses mock cloud transports and isolated test data; it makes no billable API requests, records no microphone audio, and does not type into other apps.
 
-Under General, choose the system default microphone or a specific input device,
-select a language or automatic detection, enable optional sounds, and configure
-launch at login. Microphone choices are stored by stable device UID. If the
-selected microphone disappears, recording reports an error rather than silently
-switching devices. Launch at login uses Apple's SMAppService; macOS may require
-approval in Login Items. Register a stable installed app before relying on it.
-
-Fn users: set System Settings → Keyboard → “Press 🌐 key to” to “Do Nothing”.
-
-## Development signing
-
-This machine has no Apple Development signing identity configured. Builds use
-ad-hoc signing. macOS may keep showing an enabled Accessibility switch for an
-older build while denying the new build. If this occurs, quit Utter, remove its
-Accessibility entry, re-add the current app, enable it, and relaunch.
-
-To preserve permissions across rebuilds, add your Apple ID under Xcode → Settings
-→ Accounts and create an Apple Development certificate for your personal team:
+Local inference integration check (uses the app's real provider):
 
 ```sh
-cp Config/Signing.local.xcconfig.example Config/Signing.local.xcconfig
-```
-
-Replace `YOUR_TEAM_ID` in that local file. Use the same team, certificate, and
-bundle ID (`org.utter.app`) consistently. The local signing file is ignored by
-Git. Developer ID signing, notarization, DMG packaging, and Sparkle are Phase 5.
-
-## Automated verification
-
-```sh
-xcodebuild -project Utter.xcodeproj -scheme Utter -configuration Debug \
-  -destination 'platform=macOS,arch=arm64' -derivedDataPath build test
-xcodebuild -project Utter.xcodeproj -scheme Utter -configuration Release \
+xcodebuild -packageAuthorizationProvider netrc -project Utter.xcodeproj -scheme UtterLocalCheck \
   -destination 'platform=macOS,arch=arm64' -derivedDataPath build build
-bash scripts/verify-phase0.sh build/Build/Products/Debug/Utter.app
-bash scripts/verify-phase0.sh build/Build/Products/Release/Utter.app
-```
-
-Tests cover modifier edges, rapid presses, short-tap boundaries, cap rearming,
-cancellation, recording errors, PCM/WAV encoding, stereo/mono resampling,
-streaming continuity and the resampler tail, the five-minute audio memory cap,
-debug-WAV replacement, multi-item clipboard restoration, transient/concealed
-markers, concurrent clipboard changes, secure input, permission/focus errors,
-pipeline timeouts and recovery, queue order, model installation receipts,
-startup without downloads, cached preparation, retry, cancellation, and saved
-model selection.
-
-Clipboard tests use uniquely named pasteboards and simulated keyboard drivers.
-They do not type into other apps or modify the user's clipboard. Routine tests
-do not access the microphone, download models, or change login-item registration.
-
-## Real local-model integration check
-
-The command-line target uses the same provider as the app and a synthetic speech
-fixture. It verifies recognition and rejection of silence. It never records the
-microphone or posts paste events. Downloads happen only with `--download`.
-
-```sh
-xcodebuild -project Utter.xcodeproj -scheme UtterLocalCheck -configuration Debug \
-  -destination 'platform=macOS,arch=arm64' -derivedDataPath build build
-say -v Samantha -o /tmp/utter-local-fixture.aiff \
-  'The quick brown fox jumps over the lazy dog.'
+say -v Samantha -o /tmp/utter-local-fixture.aiff 'The quick brown fox jumps over the lazy dog.'
 build/Build/Products/Debug/UtterLocalCheck small \
-  "$HOME/Library/Application Support/Utter/Models" \
-  /tmp/utter-local-fixture.aiff --download
+  "$HOME/Library/Application Support/Utter/Models" /tmp/utter-local-fixture.aiff
 ```
 
-Repeat without `--download` to verify cached loading. A separate run under a
-process sandbox denying networking can verify that cached loading and recognition
-operate without network access. The synthetic fixture is temporary test data;
-user recordings are not saved by this check.
+Append `--download` only if the model isn't installed. The check also verifies silence rejection. `UtterCleanupCheck` tests 30 cleanup fixtures against Anthropic only when you explicitly provide `ANTHROPIC_API_KEY`; without it, the tool skips without a network call. Set `ANTHROPIC_MODEL` if needed. Routine tests verify request/response contracts; only this opt-in live check evaluates the real model's transformations.
 
-## Current manual checkpoint
+## Signing and distribution
 
-1. After granting permissions for the new build, choose Small or Large v3 Turbo,
-   download and prepare it, then dictate into Notes. Check actual recognized
-   words, punctuation, the final word, retained focus, and the On-device pill.
-2. Copy text before dictating. After insertion, manually paste again and confirm
-   the original clipboard is restored. Repeat with rich text, images, and copied
-   files. A new copy made during the 300 ms restore delay must remain intact.
-3. Turn off networking after the model is ready and dictate again. Relaunch while
-   offline and verify the cached model becomes ready and still transcribes.
-4. Record successive clips while a previous clip processes. Check ordered results.
-   Change apps before a result arrives: insertion must be blocked, and the raw
-   recognized text should be copied to the clipboard for recovery.
-5. Try silence, rapid presses, sub-250 ms taps, and a five-minute hold. Test all
-   hotkey choices, left/right modifier discrimination, and full-screen/multi-display
-   placement. The overlay must never take keyboard focus.
-6. Select an external mic, record, and disconnect it mid-recording. Expect a clear
-   error. Choose a connected microphone and verify recovery. Also lock/sleep
-   mid-recording: partial audio and pending insertions must be cancelled.
-7. Test model-download cancellation/retry and reopening with a cached model.
-   Verify microphone, language, mode, sounds, and hotkey selections persist.
-   Test launch-at-login enable/disable and any macOS approval prompt separately.
-8. Confirm the Cleanup tab reports pass-through and no cloud connection. In
-   General, verify debug saving off does not change an existing debug WAV.
+Ad-hoc rebuilds can invalidate macOS permissions even when the old Accessibility switch remains enabled. Quit Utter, remove the old entry, re-add the current app, enable it, and relaunch. For stable development signing, configure an Apple Development certificate in Xcode → Settings → Accounts, copy `Config/Signing.local.xcconfig.example` to ignored `Config/Signing.local.xcconfig`, and set your team. Keep the identity and `org.utter.app` bundle ID consistent.
 
-Real paste delivery still requires checking each destination. A posted keyboard
-event has no acknowledgment from the receiving app.
+```sh
+bash scripts/package-local.sh
+```
 
-| Destination | Manual result |
+This builds Release, creates and verifies the local DMG, and prints its SHA-256. Public distribution is prepared by `scripts/release.sh`: Developer ID archive, notarization, stapling, signed DMG, Sparkle appcast and generated Homebrew cask. Supply `DEVELOPMENT_TEAM`, `DEVELOPER_ID_APPLICATION`, an existing `NOTARY_PROFILE`, `UTTER_GITHUB_REPOSITORY` (`OWNER/REPO`), `SPARKLE_PUBLIC_KEY`, `SPARKLE_PRIVATE_KEY_FILE`, and `SPARKLE_BIN` (the Sparkle distribution's directory containing `generate_appcast`). Optional `RELEASE_VERSION` and `RELEASE_BUILD` default to 0.1.0 and 1. Keep private signing keys outside this repository. Upload the resulting DMG and appcast.xml to the matching GitHub Release; publish the generated `utter.rb` in your Homebrew tap. No fake public release URL or checksum is shipped.
+
+The appcast points to GitHub Releases, verifies Ed25519 signatures, and supports user-controlled automatic checks. Signing identities, notarization credentials, a public release repository and update signing keys are external release prerequisites; no public release has been published. GitHub Actions builds/tests pull requests and Release builds once the repository is hosted on GitHub.
+
+## Bring-your-own-key budget
+
+The following are **planning estimates copied from PLAN.md, not a current pricing quote**. Assumes 25 minutes/day for 30 days; verify vendor pricing before relying on these numbers.
+
+| Configuration | Estimated monthly usage cost |
 |---|---|
-| Chat text field: sample paste and clipboard restoration | Confirmed by user |
-| Notes: real local dictation | Pending |
-| Safari / Chrome web inputs | Pending |
-| Slack composer / Mail draft | Pending |
-| VS Code / Cursor editor | Pending |
-| Terminal / iTerm | Pending |
-| Google Docs editor | Pending |
+| Local speech recognition, cloud off | $0 |
+| Groq transcription | ~$0.60 |
+| OpenAI transcription | ~$2.25 |
+| Claude cleanup | ~$0.90 |
+| Groq + Claude | ~$1.50–3 |
 
-For terminal sample-paste testing, use `# Utter paste test` without a trailing
-newline. Secure fields must block insertion with “Can't type into a secure field”
-when macOS delivers shortcut events; secure input can also suppress monitoring.
-
-## Privacy
-
-No telemetry or analytics. Speech and recognized text stay on this Mac. Network
-access is used only for explicit model downloads; transcription itself uses the
-local model and tokenizer. No API keys are requested or stored in this build.
-Future API credentials must use Keychain.
-
-Audio is memory-only unless **Save the last recording as a WAV file** is enabled
-under General. That setting replaces
-`~/Library/Application Support/Utter/debug/last-recording.wav` with owner-only
-file permissions. Turning it off stops saving but does not delete an existing
-WAV. Debug mode also logs stage durations only, with no audio or transcript text.
-No transcript history is stored.
-
-Temporary paste text carries transient/concealed markers. The original clipboard
-is restored after approximately 300 ms only if Utter still owns it. If insertion
-fails after recognition, raw text is intentionally left on the clipboard for
-recovery. A focused-app change blocks automatic insertion. The app is deliberately
-not sandboxed because synthetic paste requires it.
+An Apple Developer subscription is a separate distribution expense. See [PLAN.md](PLAN.md) for assumptions and the original comparison.

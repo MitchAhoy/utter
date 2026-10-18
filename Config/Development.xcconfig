@@ -3,3 +3,7 @@
 CODE_SIGN_STYLE = Manual
 CODE_SIGN_IDENTITY = -
 #include? "Signing.local.xcconfig"
+
+// Signed releases set these through the release script; empty disables updates.
+UTTER_UPDATE_FEED =
+UTTER_UPDATE_PUBLIC_KEY =

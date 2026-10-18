@@ -25,6 +25,7 @@ final class RecordingSession {
     private var dismiss: Task<Void, Never>?
     private var armed = true
     private(set) var isRecording = false
+    var onError: (@MainActor (String) -> Void)?
     var onClip: (@MainActor (RecordedAudio) -> Void)?
     var onSound: (@MainActor (Bool) -> Void)?
     var onStateChange: (@MainActor () -> Void)?
@@ -132,6 +133,7 @@ final class RecordingSession {
 
     func showError(_ message: String) {
         guard !isRecording else { return }
+        onError?(message)
         overlay.show(.error(message))
         scheduleDismiss()
     }
