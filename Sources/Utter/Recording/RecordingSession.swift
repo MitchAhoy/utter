@@ -8,7 +8,7 @@ protocol OverlayController: AnyObject {
 
 enum OverlayState: Equatable {
     case listening(level: Float, seconds: Int)
-    case processing
+    case processing(String)
     case complete(String)
     case error(String)
 }
@@ -99,7 +99,7 @@ final class RecordingSession {
         do {
             let audio = try recorder.stop()
             onSound?(false)
-            overlay.show(.processing)
+            overlay.show(.processing(""))
             onClip?(audio)
         } catch {
             recorder.cancel()
@@ -118,10 +118,10 @@ final class RecordingSession {
         onStateChange?()
     }
 
-    func showProcessing() {
+    func showProcessing(path: String = "") {
         guard !isRecording else { return }
         dismiss?.cancel()
-        overlay.show(.processing)
+        overlay.show(.processing(path))
     }
 
     func completed(_ message: String) {

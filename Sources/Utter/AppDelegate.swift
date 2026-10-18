@@ -40,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showSettings() {
         if settingsWindow == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 660),
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 660),
                                   styleMask: [.titled, .closable, .miniaturizable],
                                   backing: .buffered, defer: false)
             window.title = "Utter Settings"
@@ -52,6 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
         model.refreshPermissions()
+        model.refreshMicrophones()
+        model.launchAtLogin.refresh()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

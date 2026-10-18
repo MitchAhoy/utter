@@ -11,6 +11,10 @@ final class DictationPipeline {
         let audio: RecordedAudio
         let context: DictationContext
         let transcriber: any TranscriptionProvider
+        let timeout: Duration
+        let path: DictationPath
+        let debugTimings: Bool
+        let released: ContinuousClock.Instant
     }
     private let inserter: any TextInserter
     private let cleanup: any CleanupProvider
@@ -20,6 +24,7 @@ final class DictationPipeline {
     private var jobs: [Job] = []
     private var worker: Task<Void, Never>?
     private var active = false
+    private(set) var activePath: DictationPath?
     var onEvent: (@MainActor (PipelineEvent) -> Void)?
     var canAcceptClip: Bool { jobs.count + (active ? 1 : 0) < maximumPending }
 
@@ -32,9 +37,11 @@ final class DictationPipeline {
     }
 
     @discardableResult
-    func submit(audio: RecordedAudio, context: DictationContext, transcriber: any TranscriptionProvider) -> Bool {
+    func submit(audio: RecordedAudio, context: DictationContext, transcriber: any TranscriptionProvider,
+                path: DictationPath = .sample, timeout: Duration? = nil, debugTimings: Bool = false) -> Bool {
         guard canAcceptClip else { onEvent?(.failed(PipelineError.queueFull.localizedDescription)); return false }
-        jobs.append(Job(audio: audio, context: context, transcriber: transcriber))
+        jobs.append(Job(audio: audio, context: context, transcriber: transcriber,
+                        timeout: timeout ?? transcriptionTimeout, path: path, debugTimings: debugTimings, released: .now))
         startWorkerIfNeeded()
         return true
     }
@@ -48,10 +55,12 @@ final class DictationPipeline {
         while !Task.isCancelled, !jobs.isEmpty {
             let job = jobs.removeFirst()
             active = true
+            activePath = job.path
             onEvent?(.processing)
             await process(job)
             active = false
         }
+        activePath = nil
         worker = nil
         onEvent?(.idle)
         // A clip may have arrived while cancellation of the old worker completed.
@@ -60,8 +69,9 @@ final class DictationPipeline {
 
     private func process(_ job: Job) async {
         var raw: String?
+        let released = job.released
         do {
-            let transcript = try await withStageTimeout(transcriptionTimeout) {
+            let transcript = try await withStageTimeout(job.timeout) {
                 try await job.transcriber.transcribe(audio: job.audio, language: job.context.language, prompt: job.context.prompt)
             }
             try Task.checkCancellation()
@@ -69,6 +79,7 @@ final class DictationPipeline {
                 throw PipelineError.emptyTranscript
             }
             raw = transcript
+            if job.debugTimings { StageTimingLog.record("transcript", since: released, path: job.path) }
             let cleaned: String
             do {
                 let cleaner = cleanup
@@ -81,8 +92,10 @@ final class DictationPipeline {
                 cleaned = transcript
             }
             try Task.checkCancellation()
+            if job.debugTimings { StageTimingLog.record("cleaned", since: released, path: job.path) }
             try await inserter.insert(cleaned, target: job.context.target)
             try Task.checkCancellation()
+            if job.debugTimings { StageTimingLog.record("pasted", since: released, path: job.path) }
             onEvent?(.inserted)
         } catch {
             guard !Task.isCancelled else { return }

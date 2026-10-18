@@ -16,6 +16,21 @@ final class AppModel: ObservableObject {
     @Published var debugRecording: Bool {
         didSet { UserDefaults.standard.set(debugRecording, forKey: "debugRecording") }
     }
+    @Published var mode: DictationMode {
+        didSet { UserDefaults.standard.set(mode.rawValue, forKey: "dictationMode") }
+    }
+    @Published var language: String {
+        didSet { UserDefaults.standard.set(language, forKey: "dictationLanguage") }
+    }
+    @Published var microphoneUID: String {
+        didSet {
+            UserDefaults.standard.set(microphoneUID, forKey: "microphoneUID")
+            recorder.selectedDeviceUID = microphoneUID
+        }
+    }
+    @Published private(set) var microphones: [AudioInputDevice] = []
+    let localModels = LocalModelController()
+    let launchAtLogin = LaunchAtLoginController()
     @Published private(set) var accessibilityGranted = false
     @Published private(set) var microphoneGranted = false
     @Published private(set) var shortcutReady = false
@@ -25,24 +40,30 @@ final class AppModel: ObservableObject {
     @Published var sampleText = "This is a paste test from Utter."
     @Published private(set) var pasteTestArmed = false
     @Published private(set) var isProcessing = false
-    private struct PasteTestRequest {
-        let text: String
+    private struct CaptureRequest {
         let context: DictationContext
+        let provider: any TranscriptionProvider
+        let path: DictationPath
     }
-    private var pasteTestRequest: PasteTestRequest?
+    private var captureRequest: CaptureRequest?
     private let pipeline = DictationPipeline(inserter: ClipboardTextInserter())
     private let monitor = EventTapHotkeyMonitor()
     private let debugStore = DebugRecordingStore()
-    private let session = RecordingSession(recorder: EngineAudioRecorder(), overlay: RecordingOverlay())
+    private let recorder = EngineAudioRecorder()
+    private lazy var session = RecordingSession(recorder: recorder, overlay: RecordingOverlay())
     private var permissionTask: Task<Void, Never>?
     private var generation = 0
 
     init() {
         let defaults = UserDefaults.standard
+        mode = DictationMode(rawValue: defaults.string(forKey: "dictationMode") ?? "") ?? .local
+        language = defaults.string(forKey: "dictationLanguage") ?? ""
+        microphoneUID = defaults.string(forKey: "microphoneUID") ?? ""
         hotkey = HotkeyChoice(rawValue: defaults.string(forKey: "hotkey") ?? "") ?? .rightOption
         sounds = defaults.bool(forKey: "sounds")
         debugRecording = defaults.bool(forKey: "debugRecording")
         monitor.choice = hotkey
+        recorder.selectedDeviceUID = microphoneUID
         session.onSound = { [weak self] starting in
             guard self?.sounds == true else { return }
             NSSound(named: starting ? "Tink" : "Pop")?.play()
@@ -58,10 +79,11 @@ final class AppModel: ObservableObject {
             switch event {
             case .processing:
                 self.isProcessing = true
-                self.session.showProcessing()
+                self.session.showProcessing(path: self.pipeline.activePath?.title ?? "")
             case .inserted:
-                self.status = "Inserted sample text. Your original clipboard was restored unless it changed during the paste."
-                self.session.completed("Sample text inserted")
+                let sample = self.pipeline.activePath == .sample
+                self.status = sample ? "Sample text inserted." : "Dictation inserted · On-device."
+                self.session.completed(sample ? "Sample text inserted" : "Inserted · On-device")
             case .failed(let message):
                 self.status = message
                 self.session.showError(message)
@@ -77,6 +99,8 @@ final class AppModel: ObservableObject {
 
     func start() {
         refreshPermissions()
+        refreshMicrophones()
+        localModels.prepare(download: false)
         permissionTask = Task { [weak self] in
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
@@ -89,6 +113,7 @@ final class AppModel: ObservableObject {
         accessibilityGranted = AXIsProcessTrusted()
         microphoneGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         if !microphoneGranted && session.isRecording {
+            captureRequest = nil
             session.cancel()
             session.showError("Microphone access was revoked. Allow access in System Settings.")
         }
@@ -150,7 +175,7 @@ final class AppModel: ObservableObject {
         // Cancelling an armed test must remain possible if permissions change.
         if pasteTestArmed {
             pasteTestArmed = false
-            pasteTestRequest = nil
+            captureRequest = nil
             status = "Paste test cancelled."
             return
         }
@@ -179,37 +204,46 @@ final class AppModel: ObservableObject {
         status = "Paste test armed. Focus a text field in another app, then hold and release your shortcut."
     }
 
+    func refreshMicrophones() { microphones = AudioInputDevices.available() }
+
     private func handleHotkey(_ event: HotkeyEvent) {
-        if event == .down, !session.isRecording, pasteTestArmed {
-            guard pipeline.canAcceptClip else {
-                session.showError(PipelineError.queueFull.localizedDescription)
-                return
+        if event == .down, !session.isRecording {
+            captureRequest = nil
+            if pasteTestArmed || mode == .local {
+                guard pipeline.canAcceptClip else {
+                    session.showError(PipelineError.queueFull.localizedDescription)
+                    return
+                }
+                guard pasteTestArmed || localModels.isReady else {
+                    session.showError(LocalModelError.notInstalled.localizedDescription)
+                    return
+                }
+                guard let app = NSWorkspace.shared.frontmostApplication,
+                      app.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
+                    session.showError("Focus a text field in another app before dictating.")
+                    return
+                }
+                let target = InsertionTarget(processID: app.processIdentifier,
+                                             appName: app.localizedName ?? "App", bundleID: app.bundleIdentifier ?? "")
+                let context = DictationContext(target: target, language: language.isEmpty ? nil : language)
+                captureRequest = CaptureRequest(context: context,
+                                                provider: pasteTestArmed ? SampleTextProvider(text: sampleText) : localModels.provider,
+                                                path: pasteTestArmed ? .sample : .local)
             }
-            guard let app = NSWorkspace.shared.frontmostApplication,
-                  app.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
-                session.showError("Focus a text field in another app before testing paste.")
-                return
-            }
-            let target = InsertionTarget(processID: app.processIdentifier,
-                                         appName: app.localizedName ?? "App", bundleID: app.bundleIdentifier ?? "")
-            pasteTestRequest = PasteTestRequest(text: sampleText, context: DictationContext(target: target))
         }
         session.handle(event)
-        if event == .up || event == .cancel { pasteTestRequest = nil }
+        if event == .up || event == .cancel { captureRequest = nil }
     }
 
     private func received(_ audio: RecordedAudio) {
-        if let request = pasteTestRequest {
-            pasteTestArmed = false
-            pasteTestRequest = nil
-            pipeline.submit(audio: audio, context: request.context,
-                            transcriber: SampleTextProvider(text: request.text))
-            if debugRecording {
-                Task { [weak self, debugStore] in
-                    do { self?.lastRecordingURL = try await debugStore.save(audio) }
-                    catch { self?.status = "Debug audio could not be saved." }
-                }
-            }
+        if let request = captureRequest {
+            if request.path == .sample { pasteTestArmed = false }
+            captureRequest = nil
+            isProcessing = true
+            pipeline.submit(audio: audio, context: request.context, transcriber: request.provider,
+                            path: request.path, timeout: .seconds(max(30, audio.duration * 3 + 15)),
+                            debugTimings: debugRecording)
+            if debugRecording { saveDebugAudio(audio) }
             return
         }
         let length = String(format: "%.1f", audio.duration)
@@ -235,14 +269,22 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func saveDebugAudio(_ audio: RecordedAudio) {
+        Task { [weak self, debugStore] in
+            do { self?.lastRecordingURL = try await debugStore.save(audio) }
+            catch { self?.status = "Debug audio could not be saved." }
+        }
+    }
+
     @objc private func willSleep() {
-        pasteTestRequest = nil
+        captureRequest = nil
         pasteTestArmed = false
         pipeline.cancel()
         session.cancel()
     }
 
     func stop() {
+        localModels.cancel()
         permissionTask?.cancel()
         permissionTask = nil
         monitor.stop()

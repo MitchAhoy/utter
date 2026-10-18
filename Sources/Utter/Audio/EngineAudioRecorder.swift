@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import Foundation
 
 @MainActor
@@ -91,6 +92,7 @@ final class AudioBufferStore: @unchecked Sendable {
 
 @MainActor
 final class EngineAudioRecorder: AudioRecorder {
+    var selectedDeviceUID = ""
     private var engine: AVAudioEngine?
     private var store: AudioBufferStore?
     private var configurationObserver: NSObjectProtocol?
@@ -105,6 +107,19 @@ final class EngineAudioRecorder: AudioRecorder {
         }
         let engine = AVAudioEngine()
         let input = engine.inputNode
+        if !selectedDeviceUID.isEmpty {
+            guard let device = AudioInputDevices.available().first(where: { $0.id == selectedDeviceUID }),
+                  let unit = input.audioUnit else {
+                throw RecordingError.message("The selected microphone is unavailable. Choose another microphone in General settings.")
+            }
+            var id = device.deviceID
+            let result = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice,
+                                              kAudioUnitScope_Global, 0, &id,
+                                              UInt32(MemoryLayout.size(ofValue: id)))
+            guard result == noErr else {
+                throw RecordingError.message("Could not select the microphone (error \(result)).")
+            }
+        }
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0,
               let output = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false),

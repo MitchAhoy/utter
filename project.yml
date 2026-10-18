@@ -18,6 +18,9 @@ settings:
     ENABLE_APP_SANDBOX: NO
     ENABLE_HARDENED_RUNTIME: YES
 packages:
+  WhisperKit:
+    url: https://github.com/argmaxinc/WhisperKit.git
+    exactVersion: 1.1.1
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     exactVersion: 3.1.0
@@ -29,6 +32,8 @@ targets:
       - Sources/Utter
     dependencies:
       - package: KeyboardShortcuts
+      - package: WhisperKit
+        product: WhisperKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.utter.app
@@ -38,6 +43,24 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Config/Utter.entitlements
         MARKETING_VERSION: 0.1.0
         CURRENT_PROJECT_VERSION: 1
+  UtterLocalCheck:
+    type: tool
+    platform: macOS
+    sources:
+      - Sources/LocalCheck
+      - Sources/Utter/Local/LocalModel.swift
+      - Sources/Utter/Local/WhisperKitProvider.swift
+      - Sources/Utter/Local/LocalModelStore.swift
+      - Sources/Utter/Local/OfflineWhisperTokenizer.swift
+      - Sources/Utter/Audio/RecordedAudio.swift
+      - Sources/Utter/Pipeline/Providers.swift
+      - Sources/Utter/Insertion/InsertionTypes.swift
+    dependencies:
+      - package: WhisperKit
+        product: WhisperKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.utter.local-check
   UtterTests:
     type: bundle.unit-test
     platform: macOS
@@ -64,3 +87,9 @@ schemes:
         - UtterTests
     archive:
       config: Release
+  UtterLocalCheck:
+    build:
+      targets:
+        UtterLocalCheck: all
+    run:
+      config: Debug

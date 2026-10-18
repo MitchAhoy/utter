@@ -3,7 +3,7 @@ import SwiftUI
 
 @MainActor
 private final class OverlayModel: ObservableObject {
-    @Published var state: OverlayState = .processing
+    @Published var state: OverlayState = .processing("")
 }
 
 private struct PillView: View {
@@ -22,9 +22,9 @@ private struct PillView: View {
                 }
                 .accessibilityLabel("Microphone level \(Int(level * 100)) percent")
                 Text(String(format: "%d:%02d", seconds / 60, seconds % 60)).monospacedDigit()
-            case .processing:
+            case .processing(let path):
                 ProgressView().controlSize(.small)
-                Text("Processing…")
+                Text(path.isEmpty ? "Processing…" : "Processing · \(path)…")
             case .complete(let message):
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                 Text(message)
@@ -35,7 +35,7 @@ private struct PillView: View {
         }
         .font(.system(size: 13))
         .padding(.horizontal, 20).padding(.vertical, 14)
-        .frame(maxWidth: 500)
+        .fixedSize(horizontal: false, vertical: true)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(.white.opacity(0.15)))
         .padding(8)
@@ -65,7 +65,9 @@ final class RecordingOverlay: OverlayController {
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.ignoresMouseEvents = true
-        panel.contentView = NSHostingView(rootView: PillView(model: model))
+        let host = NSHostingView(rootView: PillView(model: model))
+        host.sizingOptions = [.minSize, .intrinsicContentSize]
+        panel.contentView = host
         panel.setAccessibilityLabel("Utter recording status")
     }
 
@@ -73,7 +75,8 @@ final class RecordingOverlay: OverlayController {
         model.state = state
         let screen = isVisible ? panel.screen : focusedScreen()
         let frame = (screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let size = NSSize(width: 520, height: 100)
+        let ideal = panel.contentView?.fittingSize ?? NSSize(width: 320, height: 70)
+        let size = NSSize(width: min(520, max(220, ideal.width)), height: max(64, ideal.height))
         panel.setFrame(NSRect(x: frame.midX - size.width / 2, y: frame.minY + 28,
                               width: size.width, height: size.height), display: true)
         panel.orderFrontRegardless()
