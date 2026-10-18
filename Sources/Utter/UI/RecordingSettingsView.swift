@@ -36,10 +36,16 @@ struct RecordingSettingsView: View {
                 TextField("Sample text", text: $model.sampleText, axis: .vertical)
                     .lineLimit(2...4)
                     .disabled(model.pasteTestArmed || model.isRecording)
-                Button(model.pasteTestArmed ? "Cancel Paste Test" : "Arm Paste Test") {
+                Button(model.pasteTestActionTitle) {
                     model.togglePasteTest()
                 }
-                .disabled(model.isRecording || !model.accessibilityGranted || model.isProcessing)
+                .disabled(!model.pasteTestArmed && (model.isRecording || model.isProcessing))
+                if let blocker = model.pasteTestBlocker {
+                    Label(blocker, systemImage: "exclamationmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Text(model.pasteTestArmed
                      ? "Armed. Focus a text field in another app, then hold and release your shortcut. This inserts the sample above once."
                      : "Test pasting without an API. The next recording inserts this sample text instead of transcribing speech. Short taps leave the test armed.")

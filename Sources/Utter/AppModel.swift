@@ -124,16 +124,55 @@ final class AppModel: ObservableObject {
         }
     }
 
+    var pasteTestActionTitle: String {
+        if pasteTestArmed { return "Cancel Paste Test" }
+        if !accessibilityGranted { return "Enable Accessibility…" }
+        if !microphoneGranted { return "Allow Microphone…" }
+        if !shortcutReady { return "Retry Shortcut Monitor" }
+        return "Arm Paste Test"
+    }
+
+    var pasteTestBlocker: String? {
+        if pasteTestArmed { return nil }
+        if !accessibilityGranted {
+            return "Accessibility is required for pasting. Enable Utter in System Settings → Privacy & Security → Accessibility. After a rebuild, you may need to remove and re-add Utter, then relaunch it."
+        }
+        if !microphoneGranted {
+            return "Microphone access is required to complete the hold-and-release recording test. Click Allow Microphone to grant access."
+        }
+        if !shortcutReady { return "Shortcut monitoring is not ready. Click Retry Shortcut Monitor." }
+        if isRecording { return "Release your shortcut to finish recording before arming a paste test." }
+        if isProcessing { return "The previous paste is finishing. The button will be available shortly." }
+        return nil
+    }
+
     func togglePasteTest() {
-        guard !isRecording else { return }
+        // Cancelling an armed test must remain possible if permissions change.
         if pasteTestArmed {
             pasteTestArmed = false
             pasteTestRequest = nil
             status = "Paste test cancelled."
             return
         }
-        guard accessibilityGranted, !sampleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            status = "Allow Accessibility and enter sample text before arming the paste test."
+        guard !isRecording, !isProcessing else { return }
+        refreshPermissions()
+        guard accessibilityGranted else {
+            status = pasteTestBlocker ?? "Enable Accessibility to test paste."
+            openAccessibility()
+            return
+        }
+        guard microphoneGranted else {
+            status = pasteTestBlocker ?? "Allow microphone access to test paste."
+            if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+                Task { await requestMicrophone() }
+            } else {
+                openMicrophone()
+            }
+            return
+        }
+        guard shortcutReady else { return }
+        guard !sampleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            status = "Enter sample text before arming the paste test."
             return
         }
         pasteTestArmed = true
