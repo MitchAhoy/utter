@@ -1,0 +1,43 @@
+name: Utter
+options:
+  minimumXcodeGenVersion: 2.44.0
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+configs:
+  Debug: debug
+  Release: release
+configFiles:
+  Debug: Config/Development.xcconfig
+  Release: Config/Development.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    ENABLE_APP_SANDBOX: NO
+    ENABLE_HARDENED_RUNTIME: YES
+targets:
+  Utter:
+    type: application
+    platform: macOS
+    sources:
+      - Sources/Utter
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.utter.app
+        PRODUCT_NAME: Utter
+        INFOPLIST_FILE: Config/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Config/Utter.entitlements
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+schemes:
+  Utter:
+    build:
+      targets:
+        Utter: all
+    run:
+      config: Debug
+    archive:
+      config: Release

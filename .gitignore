@@ -1,0 +1,18 @@
+# XcodeGen output and local build products
+*.xcodeproj/
+*.xcworkspace/
+build/
+DerivedData/
+*.xcresult/
+xcuserdata/
+*.xcuserstate
+.DS_Store
+
+# Personal signing, credentials, and recordings
+Config/Signing.local.xcconfig
+.env
+.env.*
+!.env.example
+*.wav
+*.flac
+debug/

@@ -1,0 +1,5 @@
+// Ad-hoc signing supports the Phase 0 build without a development certificate.
+// Configure a consistent personal team before testing macOS permissions.
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = -
+#include? "Signing.local.xcconfig"
