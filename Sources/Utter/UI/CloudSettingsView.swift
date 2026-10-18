@@ -29,8 +29,13 @@ private struct CredentialRow: View {
                 Text(cloud.storedKeys.contains(service) ? "Saved in Keychain" : "Not configured")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            SecureField("API key", text: $value, prompt: Text("Paste your \(service.title) API key here"))
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.large)
+                .frame(maxWidth: .infinity)
+                .accessibilityLabel("\(service.title) API key")
             HStack {
-                SecureField("Paste your \(service.title) API key", text: $value)
                 Button("Save") { if cloud.save(value, service: service) { value = "" } }.disabled(value.isEmpty)
                 Button("Remove") { cloud.delete(service) }.disabled(!cloud.storedKeys.contains(service))
             }
