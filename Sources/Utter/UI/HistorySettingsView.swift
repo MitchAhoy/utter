@@ -43,7 +43,7 @@ struct HistorySettingsView: View {
                         HStack {
                             Button("Copy Again") { history.copy(selected) }
                             Button("Re-run Cleanup") { history.rerun(selected, cleaner: cloud.cleaner()) }
-                                .disabled(history.busy || !cloud.enabled || !cloud.cleanupEnabled || !cloud.storedKeys.contains(.anthropic))
+                                .disabled(history.busy || !cloud.cleanupActive)
                         }
                     }.padding(12).frame(minWidth: 220)
                 } else { ContentUnavailableView("Select a dictation", systemImage: "text.alignleft") }

@@ -75,6 +75,8 @@ targets:
       - Sources/CleanupCheck
       - Sources/Validation
       - Sources/Utter/Cloud/ClaudeCleanupProvider.swift
+      - Sources/Utter/Cloud/CleanupPrompt.swift
+      - Sources/Utter/Cloud/GroqCleanupProvider.swift
       - Sources/Utter/Cloud/CloudTransport.swift
       - Sources/Utter/Cloud/Credentials.swift
       - Sources/Utter/Features/FeatureSettings.swift

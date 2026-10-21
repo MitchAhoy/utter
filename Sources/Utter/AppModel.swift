@@ -52,6 +52,7 @@ final class AppModel: ObservableObject {
         let cleaner: any CleanupProvider
         var selection: Task<String, Error>? = nil
         var editor: (any CommandProvider)? = nil
+        var cursor: Task<CursorContext, Never>? = nil
     }
     private var captureRequest: CaptureRequest?
     private let pipeline = DictationPipeline(inserter: ClipboardTextInserter())
@@ -103,8 +104,10 @@ final class AppModel: ObservableObject {
                 self.session.showProcessing(path: self.pipeline.activePath?.title ?? "")
             case .inserted:
                 let sample = self.pipeline.activePath == .sample
-                self.status = sample ? "Sample text inserted." : "Inserted · \(self.pipeline.activePath?.title ?? "Dictation")"
-                self.session.completed(sample ? "Sample text inserted" : "Inserted · \(self.pipeline.activePath?.title ?? "Dictation")")
+                var message = sample ? "Sample text inserted" : "Inserted · \(self.pipeline.activePath?.title ?? "Dictation")"
+                if !sample, let note = self.pipeline.lastCleanupNote { message += "\n\(note)" }
+                self.status = message.replacingOccurrences(of: "\n", with: " · ")
+                self.session.completed(message)
             case .failed(let message):
                 self.status = message
                 self.session.showError(message)
@@ -122,6 +125,7 @@ final class AppModel: ObservableObject {
         refreshPermissions()
         refreshMicrophones()
         cloud.refreshKeys()
+        cloud.preloadKeys()
         localModels.prepare(download: false)
         permissionTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -284,9 +288,16 @@ final class AppModel: ObservableObject {
         let terms = features.terms
         let context = DictationContext(target: target, language: language.isEmpty ? nil : language,
                                        prompt: terms.isEmpty ? nil : terms.joined(separator: ", "), dictionary: terms,
-                                       style: features.style(for: target.bundleID))
+                                       style: features.style(for: target.bundleID),
+                                       category: AppCategory.from(bundleID: target.bundleID))
+        // Start network and Accessibility work now, while the user is still speaking.
+        if path != .sample {
+            cloud.warmConnections(transcription: path == .cloud || path == .auto, cleanup: true)
+        }
+        let processID = target.processID
+        let cursor = command ? nil : Task.detached(priority: .userInitiated) { CursorContextReader.read(processID: processID) }
         return CaptureRequest(context: context, provider: provider, path: command ? .command : path,
-                              cleaner: path == .sample ? PassthroughProvider() : cloud.cleaner())
+                              cleaner: path == .sample ? PassthroughProvider() : cloud.cleaner(), cursor: cursor)
     }
 
     private func handleHotkey(_ event: HotkeyEvent) {
@@ -318,11 +329,12 @@ final class AppModel: ObservableObject {
         guard features.commandEnabled, !session.isRecording, !commandRecording else { return }
         do {
             guard cloud.enabled else { throw CloudError.disabled }
-            guard cloud.storedKeys.contains(.anthropic) else { throw CloudError.missingKey(.anthropic) }
+            let service = cloud.cleanupService.credential
+            guard cloud.storedKeys.contains(service) else { throw CloudError.missingKey(service) }
             var request = try makeCapture(command: true)
             let target = request.context.target
             request.selection = Task { try await ClipboardSelectionReader().read(target: target) }
-            request.editor = cloud.claude(timeout: 30)
+            request.editor = cloud.editor(timeout: 30)
             captureRequest = request
             commandRecording = true
             session.handle(.down)
@@ -338,7 +350,8 @@ final class AppModel: ObservableObject {
                             path: request.path, timeout: .seconds(max(30, audio.duration * 3 + 15)),
                             debugTimings: debugRecording, cleaner: request.cleaner,
                             cleanupLimit: .seconds(max(0.2, cloud.cleanupTimeout)), transforms: features.transforms,
-                            selection: request.selection, editor: request.editor)
+                            selection: request.selection, editor: request.editor,
+                            cursor: request.cursor, shareCursorText: cloud.cleanupUsesContext)
             if debugRecording { saveDebugAudio(audio) }
             return
         }

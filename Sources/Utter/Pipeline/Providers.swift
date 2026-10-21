@@ -6,6 +6,9 @@ struct DictationContext: Sendable, Equatable {
     var prompt: String?
     var dictionary: [String] = []
     var style: AppStyle = .standard
+    var category: AppCategory = .general
+    /// Text just before the cursor, sent to cleanup only when the user allows it.
+    var precedingText: String? = nil
 }
 
 /// Providers must cooperate with task cancellation so stage timeouts can finish.
@@ -15,6 +18,11 @@ protocol TranscriptionProvider: Sendable {
 
 protocol CleanupProvider: Sendable {
     func clean(raw: String, context: DictationContext) async throws -> String
+    /// Shown to the user after each dictation; nil means cleanup is off.
+    var serviceName: String? { get }
+}
+extension CleanupProvider {
+    var serviceName: String? { nil }
 }
 
 struct PassthroughProvider: CleanupProvider {

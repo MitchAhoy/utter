@@ -21,7 +21,7 @@ struct CloudTranscriptionProvider: TranscriptionProvider {
     let authorize: @Sendable () async throws -> String
     let transport: any CloudTransport
     init(provider: CloudTranscriber, authorize: @escaping @Sendable () async throws -> String,
-         transport: any CloudTransport = URLSessionCloudTransport()) {
+         transport: any CloudTransport = URLSessionCloudTransport.shared) {
         self.provider = provider; self.authorize = authorize; self.transport = transport
     }
     func transcribe(audio: RecordedAudio, language: String?, prompt: String?) async throws -> String {
@@ -32,7 +32,7 @@ struct CloudTranscriptionProvider: TranscriptionProvider {
         body.field("response_format", "json")
         if let language, !language.isEmpty { body.field("language", language) }
         if let prompt, !prompt.isEmpty { body.field("prompt", String(prompt.prefix(4000))) }
-        body.audio(audio.wavData())
+        body.audio(audio.trimmingSilence().wavData())
         body.finish()
         var request = URLRequest(url: provider.endpoint)
         request.httpMethod = "POST"

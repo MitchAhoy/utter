@@ -10,6 +10,8 @@ private final class RejectRedirects: NSObject, URLSessionTaskDelegate, Sendable 
     }
 }
 final class URLSessionCloudTransport: CloudTransport, Sendable {
+    /// One session for the whole app so TLS connections are reused between dictations.
+    static let shared = URLSessionCloudTransport()
     private let session: URLSession
     init() {
         let configuration = URLSessionConfiguration.ephemeral
@@ -22,6 +24,17 @@ final class URLSessionCloudTransport: CloudTransport, Sendable {
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse, data.count < 2_000_000 else { throw CloudError.invalidResponse }
         return (data, response.statusCode)
+    }
+    /// Opens a connection ahead of the real request, so DNS and TLS finish while the user is still speaking.
+    /// Sends no credentials; the server's reply is ignored.
+    func warm(host: String) {
+        var parts = URLComponents()
+        parts.scheme = "https"; parts.host = host; parts.path = "/"
+        guard let url = parts.url else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 5
+        session.dataTask(with: request).resume()
     }
 }
 

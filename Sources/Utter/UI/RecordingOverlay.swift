@@ -1,33 +1,25 @@
 import AppKit
 import SwiftUI
 
-@MainActor
-private final class OverlayModel: ObservableObject {
-    @Published var state: OverlayState = .processing("")
-}
-
 private struct PillView: View {
-    @ObservedObject var model: OverlayModel
+    let state: OverlayState
     var body: some View {
         HStack(spacing: 12) {
-            switch model.state {
+            switch state {
             case .listening(let level, let seconds):
                 Image(systemName: "mic.fill").foregroundStyle(.red)
                 Text("Listening").fontWeight(.medium)
-                HStack(spacing: 3) {
-                    ForEach(0..<12) { index in
-                        Capsule().fill(Float(index) / 12 < level ? Color.green : Color.white.opacity(0.18))
-                            .frame(width: 4, height: CGFloat(8 + (index % 4) * 4))
-                    }
-                }
-                .accessibilityLabel("Microphone level \(Int(level * 100)) percent")
+                VoiceWaveView(level: level)
+                    .frame(width: 132, height: 30)
+                    .accessibilityElement()
+                    .accessibilityLabel("Microphone level \(Int(level * 100)) percent")
                 Text(String(format: "%d:%02d", seconds / 60, seconds % 60)).monospacedDigit()
             case .processing(let path):
                 ProgressView().controlSize(.small)
                 Text(path.isEmpty ? "Processing…" : "Processing · \(path)…")
             case .complete(let message):
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text(message)
+                Text(message).lineLimit(3)
             case .error(let message):
                 Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
                 Text(message).lineLimit(3)
@@ -50,9 +42,11 @@ private final class NonActivatingPanel: NSPanel {
 
 @MainActor
 final class RecordingOverlay: OverlayController {
-    private let model = OverlayModel()
     private let panel: NSPanel
+    private let host: NSHostingController<PillView>
     private var isVisible = false
+    /// Gap kept between the pill's window and every edge of the usable screen area.
+    private let margin: CGFloat = 16
 
     init() {
         panel = NonActivatingPanel(contentRect: .zero,
@@ -65,20 +59,28 @@ final class RecordingOverlay: OverlayController {
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.ignoresMouseEvents = true
-        let host = NSHostingView(rootView: PillView(model: model))
-        host.sizingOptions = [.minSize, .intrinsicContentSize]
-        panel.contentView = host
+        host = NSHostingController(rootView: PillView(state: .processing("")))
+        // The window size is set only in show(); content must never resize it,
+        // because AppKit grows windows downward from the top edge and off the screen.
+        host.sizingOptions = []
+        panel.contentViewController = host
         panel.setAccessibilityLabel("Utter recording status")
     }
 
     func show(_ state: OverlayState) {
-        model.state = state
-        let screen = isVisible ? panel.screen : focusedScreen()
-        let frame = (screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let ideal = panel.contentView?.fittingSize ?? NSSize(width: 320, height: 70)
-        let size = NSSize(width: min(520, max(220, ideal.width)), height: max(64, ideal.height))
-        panel.setFrame(NSRect(x: frame.midX - size.width / 2, y: frame.minY + 28,
-                              width: size.width, height: size.height), display: true)
+        host.rootView = PillView(state: state)
+        let screen = (isVisible ? panel.screen : nil) ?? focusedScreen() ?? NSScreen.main
+        // visibleFrame excludes the menu bar and Dock, on any display size or arrangement.
+        let area = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let maxWidth = max(160, min(520, area.width - margin * 2))
+        let maxHeight = max(64, area.height - margin * 2)
+        // Measure the new content at the width it will be shown, so wrapped text is counted.
+        let ideal = host.sizeThatFits(in: NSSize(width: maxWidth, height: maxHeight))
+        let size = NSSize(width: min(maxWidth, max(220, ideal.width)), height: min(maxHeight, max(64, ideal.height)))
+        var origin = NSPoint(x: area.midX - size.width / 2, y: area.minY + 28)
+        origin.x = min(max(origin.x, area.minX + margin), area.maxX - margin - size.width)
+        origin.y = min(max(origin.y, area.minY + margin), area.maxY - margin - size.height)
+        panel.setFrame(NSRect(origin: origin, size: size), display: true)
         panel.orderFrontRegardless()
         isVisible = true
     }
@@ -107,7 +109,7 @@ final class RecordingOverlay: OverlayController {
                     if AXValueGetValue(position, .cgPoint, &point), AXValueGetValue(dimensions, .cgSize, &size) {
                         let top = NSScreen.screens.first?.frame.maxY ?? 0
                         let center = NSPoint(x: point.x + size.width / 2, y: top - point.y - size.height / 2)
-                        return NSScreen.screens.first { $0.frame.contains(center) }
+                        if let match = NSScreen.screens.first(where: { $0.frame.contains(center) }) { return match }
                     }
                 }
             }

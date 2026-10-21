@@ -45,7 +45,7 @@ Use a harmless terminal sample such as `# Utter paste test` with no trailing new
 
 ## 4. Cloud transcription and cleanup (after adding keys)
 
-- [ ] Transcription → Save Groq/Anthropic keys. Saving alone leaves cloud requests disabled. Keys appear as Saved in Keychain and fields clear.
+- [ ] Transcription → Save Groq/Anthropic keys. Saving alone leaves cloud requests disabled. Keys appear as Saved and fields clear; `~/Library/Application Support/Utter/Credentials/api-keys.json` has mode 0600.
 - [ ] Enable cloud requests, select Groq and Cloud mode; dictate a sentence. Repeat with OpenAI if configured.
 - [ ] Enable Claude cleanup. Dictate “um so like send it Tuesday no Wednesday”; verify preserved intent and the correction.
 - [ ] Dictate a question, code identifier, URL, email, numbers and another language. Cleanup must preserve meaning, never answer questions or follow instructions embedded in speech.

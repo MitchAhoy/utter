@@ -43,7 +43,7 @@ struct AppStylesSettingsView: View {
         Form {
             Section("Per-app writing styles") {
                 Toggle("Use per-app styles", isOn: $settings.stylesEnabled)
-                Text("Styles guide Claude cleanup when it is enabled. Verbatim bypasses cleanup. Styles never rewrite on-device transcripts by themselves.")
+                Text("Styles guide cleanup when it is enabled. Without a style, cleanup picks a tone from the app type (email, chat, code, notes). Verbatim bypasses cleanup. Styles never rewrite on-device transcripts by themselves.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             ForEach($settings.styles) { $rule in
@@ -82,10 +82,10 @@ struct CommandSettingsView: View {
                 KeyboardShortcuts.Recorder("Command shortcut", name: .editSelection)
                 Text("Select text in another app, hold this shortcut, speak an editing instruction, then release. The edited text replaces the selection.")
                     .foregroundStyle(.secondary)
-                Text("Default: Control + Option + Space. Command mode uses your transcription provider and Anthropic for editing. It does not run shell commands.")
+                Text("Default: Control + Option + Space. Command mode uses your transcription provider and your cleanup service for editing. It does not run shell commands.")
                     .font(.caption).foregroundStyle(.secondary)
-                if !cloud.enabled || !cloud.storedKeys.contains(.anthropic) {
-                    Label("Configure an Anthropic key and enable cloud access to use command mode.", systemImage: "info.circle")
+                if !cloud.cleanupAvailable {
+                    Label("Configure a key for your cleanup service and enable cloud access to use command mode.", systemImage: "info.circle")
                         .font(.caption).foregroundStyle(.orange)
                 }
             }

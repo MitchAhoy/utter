@@ -5,6 +5,29 @@ struct RecordedAudio: Sendable {
     let samples: [Float]
     var duration: TimeInterval { Double(samples.count) / Double(Self.sampleRate) }
 
+    /// Drops quiet lead-in and tail so less audio is uploaded and Whisper has less silence to hallucinate on.
+    /// Keeps a short margin around speech, and returns the clip unchanged if nothing is clearly louder than the floor.
+    func trimmingSilence(padding: TimeInterval = 0.3) -> RecordedAudio {
+        let window = Self.sampleRate / 50
+        let count = samples.count / window
+        guard count > 10 else { return self }
+        let levels = (0..<count).map { index -> Float in
+            let slice = samples[(index * window)..<((index + 1) * window)]
+            return sqrt(slice.reduce(Float(0)) { $0 + $1 * $1 } / Float(window))
+        }
+        let sorted = levels.sorted()
+        let floor = sorted[count / 10], peak = sorted[count - 1]
+        guard peak > floor * 4, peak > 0.003 else { return self }
+        let threshold = max(floor * 2, peak * 0.08, 0.002)
+        guard let first = levels.firstIndex(where: { $0 > threshold }),
+              let last = levels.lastIndex(where: { $0 > threshold }) else { return self }
+        let margin = Int(padding * Double(Self.sampleRate))
+        let lower = max(0, first * window - margin)
+        let upper = min(samples.count, (last + 1) * window + margin)
+        guard lower > 0 || upper < samples.count else { return self }
+        return RecordedAudio(samples: Array(samples[lower..<upper]))
+    }
+
     /// Standard little-endian PCM16 WAV. Float samples remain in memory until encoded.
     func wavData() -> Data {
         let byteCount = UInt32(samples.count * 2)

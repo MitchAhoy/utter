@@ -27,15 +27,17 @@ Under Settings → Transcription, paste keys into the secure fields and Save:
 
 | Service | Used for |
 |---|---|
-| Groq | `whisper-large-v3-turbo` transcription |
+| Groq | `whisper-large-v3-turbo` transcription, plus fast cleanup and editing commands |
 | OpenAI, optional | `gpt-4o-mini-transcribe` transcription |
-| Anthropic | Claude cleanup and spoken editing commands |
+| Anthropic, optional | Claude cleanup and spoken editing commands (Groq can do both, faster) |
 
-Keys are stored only in macOS Keychain, under `org.utter.app.api-keys`; the fields never redisplay saved secrets. Remove deletes the corresponding Keychain item. Keys are not stored in preferences, history or repository files. No validation call runs when saving.
+Keys are stored only on this Mac, in `~/Library/Application Support/Utter/Credentials/api-keys.json`, readable only by your account (folder `0700`, file `0600`); the fields never redisplay saved secrets. Remove deletes the key from that file. A file is used instead of Keychain so you are never asked for your login password, including after updates or local rebuilds. Keys saved in Keychain by earlier versions move to the file automatically the first time they are used (macOS may ask for your password that one time). Keys are not stored in preferences, history or repository files. No validation call runs when saving.
 
 Enable **Allow cloud API requests**, choose Groq or OpenAI, then select Cloud or Auto. Cloud uploads audio to the selected provider. Auto tries cloud and falls back to a prepared local model on cloud errors or when cloud is unavailable. Prepare a local model first if you want offline fallback. Local mode uses local speech recognition; independently enabled Claude cleanup can still send the resulting text to Anthropic. Turn cloud access off for fully offline dictation. **Recording only** captures without transcription or insertion.
 
-Under Cleanup, enable Claude and choose its timeout (initially 1.5 seconds). Errors/timeouts insert the raw transcript. Fewer than four words and verbatim app styles skip cleanup. The requested model identifier defaults to `claude-haiku-5-5` from BUILD_PROMPT.md and is editable to match your Anthropic account's available models. Its live availability and output quality remain to be checked after you supply a key. The prompt treats speech as text to transform, preserves questions and identifiers, and never intentionally answers dictated questions.
+Under Cleanup, enable cleanup and choose a service: **Groq** (the default, `qwen/qwen3.8-27b` with thinking turned off: about 0.1 seconds for short clips and 0.2 seconds for long ones in testing; if one Groq model hits its free-tier per-minute limit, cleanup retries once on `openai/gpt-oss-120b`) or **Anthropic Claude** (`claude-haiku-5-5`). Both model fields are editable. Cleanup removes fillers and stutters, applies spoken corrections, turns "new line", "new paragraph" and enumerated items into formatting, and picks a tone from the app you're typing in (email, chat, code editor or notes) unless you set an App Style. Errors, timeouts (initially 1.5 seconds) and output that looks like an answer instead of a cleanup insert the raw transcript. Fewer than four words and verbatim app styles skip cleanup. The prompt treats speech as text to transform and never intentionally answers dictated questions.
+
+**Speed.** Utter keeps one network session for the whole app and opens the connection to your transcription and cleanup services when you press the shortcut, so connection setup is done by the time you release. Quiet lead-in and tail are trimmed before upload. When Accessibility can read the focused field, Utter adds a separating space after existing text, and (with **Use text before the cursor**, on by default) sends up to 300 characters before the cursor so cleanup can continue a sentence. Password fields are never read.
 
 ## Optional features
 
@@ -53,7 +55,7 @@ History uses macOS's SQLite library directly, keeping the dependency list restri
 
 No telemetry or analytics. Speech stays in memory unless **Save the last recording as a WAV file** is enabled. That debug option replaces `~/Library/Application Support/Utter/debug/last-recording.wav` with owner-only permissions; disabling it stops saving and does not delete an existing WAV. Debug stage logs contain timing/path only, never transcripts or keys.
 
-Cloud access sends audio to Groq/OpenAI for transcription and text to Anthropic for enabled cleanup/commands. Each provider's policies apply. Network access is also used for explicit model downloads and, in configured public releases, optional Sparkle updates. Development builds have no update feed or update signing key and make no update checks.
+Cloud access sends audio to Groq/OpenAI for transcription and text to your chosen cleanup service (Groq or Anthropic) for enabled cleanup/commands, including up to 300 characters before the cursor when that option is on. Each provider's policies apply. Network access is also used for explicit model downloads and, in configured public releases, optional Sparkle updates. Development builds have no update feed or update signing key and make no update checks.
 
 Temporary paste text has transient/concealed markers. Utter restores all original clipboard items/types after approximately 300 ms only while it still owns the clipboard. New clipboard copies are preserved. If insertion fails after recognition, raw text is intentionally copied for recovery. Secure input and switching to another app block insertion. Synthetic paste has no receiving-app acknowledgment; test your destinations using [TEST_PLAN.md](TEST_PLAN.md). The app is not sandboxed because synthetic keyboard events require it.
 
@@ -86,7 +88,7 @@ build/Build/Products/Debug/UtterLocalCheck small \
   "$HOME/Library/Application Support/Utter/Models" /tmp/utter-local-fixture.aiff
 ```
 
-Append `--download` only if the model isn't installed. The check also verifies silence rejection. `UtterCleanupCheck` tests 30 cleanup fixtures against Anthropic only when you explicitly provide `ANTHROPIC_API_KEY`; without it, the tool skips without a network call. Set `ANTHROPIC_MODEL` if needed. Routine tests verify request/response contracts; only this opt-in live check evaluates the real model's transformations.
+Append `--download` only if the model isn't installed. The check also verifies silence rejection. `UtterCleanupCheck` tests 30 cleanup fixtures and reports latency, against Groq when you provide `GROQ_API_KEY` or Anthropic with `ANTHROPIC_API_KEY`; without either, the tool skips without a network call. Set `GROQ_MODEL` or `ANTHROPIC_MODEL` if needed. Routine tests verify request/response contracts; only this opt-in live check evaluates the real model's transformations.
 
 ## Signing and distribution
 
