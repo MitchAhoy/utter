@@ -13,7 +13,7 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist_path")" =
 test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$plist_path")" = 14.0
 test -n "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$plist_path")"
 test -x "$executable_path"
-lipo -verify_arch arm64 "$executable_path"
+lipo "$executable_path" -verify_arch arm64
 codesign --verify --strict --verbose=2 "$app_path"
 signature_description="$(codesign -dv "$app_path" 2>&1)"
 if [[ "$signature_description" == *"(adhoc,runtime)"* ]] && test -d "$app_path/Contents/Frameworks/Sparkle.framework"; then
