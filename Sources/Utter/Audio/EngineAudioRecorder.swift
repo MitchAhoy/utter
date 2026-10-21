@@ -153,12 +153,15 @@ final class EngineAudioRecorder: AudioRecorder {
         self.store = store
         self.engine = engine
         configurationFailure = nil
+        // Matches the engine by identity so the non-Sendable engine never crosses into the closure.
+        let engineID = ObjectIdentifier(engine)
         configurationObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
-        ) { [weak self, weak engine] _ in
-            Task { @MainActor [weak self, weak engine] in
-                guard let self, let engine, self.engine === engine else { return }
-                self.handleConfigurationChange(engine)
+        ) { [weak self] _ in
+            // Delivered on the main queue, so this is already main-actor work.
+            MainActor.assumeIsolated {
+                guard let self, let current = self.engine, ObjectIdentifier(current) == engineID else { return }
+                self.handleConfigurationChange(current)
             }
         }
     }
