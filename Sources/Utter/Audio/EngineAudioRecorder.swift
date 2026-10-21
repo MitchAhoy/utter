@@ -15,8 +15,8 @@ protocol AudioRecorder: AnyObject {
 /// All converter access is serialized under the same lock.
 final class AudioBufferStore: @unchecked Sendable {
     private let lock = NSLock()
-    private let converter: AVAudioConverter
-    private let outputFormat: AVAudioFormat
+    private var converter: AVAudioConverter
+    let outputFormat: AVAudioFormat
     private var samples: [Float] = []
     private var currentLevel: Float = 0
     private var errorMessage: String?
@@ -56,6 +56,21 @@ final class AudioBufferStore: @unchecked Sendable {
     func finishConversion() {
         lock.lock()
         defer { lock.unlock() }
+        drainConverter()
+    }
+
+    var inputFormat: AVAudioFormat { lock.withLock { converter.inputFormat } }
+
+    /// Swaps in a converter for a new input format, keeping samples recorded so far.
+    func replaceConverter(_ newConverter: AVAudioConverter) {
+        lock.lock()
+        defer { lock.unlock() }
+        drainConverter()
+        converter = newConverter
+    }
+
+    /// Caller must hold the lock.
+    private func drainConverter() {
         while samples.count < maximumSamples && errorMessage == nil {
             guard let output = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: 4096) else {
                 errorMessage = "Unable to finish audio conversion."
@@ -143,8 +158,33 @@ final class EngineAudioRecorder: AudioRecorder {
         ) { [weak self, weak engine] _ in
             Task { @MainActor [weak self, weak engine] in
                 guard let self, let engine, self.engine === engine else { return }
-                self.configurationFailure = "Microphone changed or disconnected. Check the connection and record again."
+                self.handleConfigurationChange(engine)
             }
+        }
+    }
+
+    /// macOS posts configuration changes for many harmless reasons, such as
+    /// Bluetooth headsets switching to headset mode when recording starts.
+    /// Keep recording when nothing changed; otherwise restart on the new format.
+    private func handleConfigurationChange(_ engine: AVAudioEngine) {
+        guard let store else { return }
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        if engine.isRunning && format == store.inputFormat { return }
+        input.removeTap(onBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0,
+              let converter = AVAudioConverter(from: format, to: store.outputFormat) else {
+            configurationFailure = "Microphone changed or disconnected. Check the connection and record again."
+            return
+        }
+        store.replaceConverter(converter)
+        input.installTap(onBus: 0, bufferSize: 2048, format: format, block: Self.makeTap(store: store))
+        do {
+            engine.prepare()
+            try engine.start()
+        } catch {
+            input.removeTap(onBus: 0)
+            configurationFailure = "Microphone changed or disconnected. Check the connection and record again."
         }
     }
 
