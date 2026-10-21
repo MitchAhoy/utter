@@ -2,6 +2,11 @@ import Foundation
 
 protocol CloudTransport: Sendable {
     func send(_ request: URLRequest) async throws -> (Data, Int)
+    /// Same as send, and also records Groq's remaining daily allowance for `usageModel`.
+    func send(_ request: URLRequest, usageModel: String) async throws -> (Data, Int)
+}
+extension CloudTransport {
+    func send(_ request: URLRequest, usageModel: String) async throws -> (Data, Int) { try await send(request) }
 }
 private final class RejectRedirects: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
@@ -21,9 +26,18 @@ final class URLSessionCloudTransport: CloudTransport, Sendable {
         session = URLSession(configuration: configuration, delegate: RejectRedirects(), delegateQueue: nil)
     }
     func send(_ request: URLRequest) async throws -> (Data, Int) {
+        let (data, response) = try await exchange(request)
+        return (data, response.statusCode)
+    }
+    func send(_ request: URLRequest, usageModel: String) async throws -> (Data, Int) {
+        let (data, response) = try await exchange(request)
+        if request.url?.host == "api.groq.com" { GroqUsageStore.shared.record(model: usageModel, response: response) }
+        return (data, response.statusCode)
+    }
+    private func exchange(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse, data.count < 2_000_000 else { throw CloudError.invalidResponse }
-        return (data, response.statusCode)
+        return (data, response)
     }
     /// Opens a connection ahead of the real request, so DNS and TLS finish while the user is still speaking.
     /// Sends no credentials; the server's reply is ignored.

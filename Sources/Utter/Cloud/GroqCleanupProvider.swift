@@ -74,7 +74,7 @@ struct GroqCleanupProvider: CleanupProvider, CommandProvider {
         ]
         if let effort { payload["reasoning_effort"] = effort }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-        let (data, status) = try await transport.send(request)
+        let (data, status) = try await transport.send(request, usageModel: model)
         guard (200..<300).contains(status) else { throw CloudError.http(status) }
         struct Response: Decodable {
             struct Choice: Decodable {

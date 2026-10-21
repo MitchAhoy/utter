@@ -58,6 +58,29 @@ final class AudioTests: XCTestCase {
         XCTAssertGreaterThan(store.level, 0)
         XCTAssertLessThanOrEqual(store.level, 1)
     }
+    /// AirPods switch from 48 kHz stereo to 24 kHz mono (headset mode) right after recording starts.
+    func testStoreFollowsMidRecordingFormatChange() throws {
+        let output = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false))
+        let before = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 2, interleaved: false))
+        let after = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24_000, channels: 1, interleaved: false))
+        let store = AudioBufferStore(outputFormat: output, converter: try XCTUnwrap(AVAudioConverter(from: before, to: output)))
+        func feed(_ format: AVAudioFormat, seconds: Double) throws {
+            let frames = AVAudioFrameCount(format.sampleRate * seconds)
+            let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames))
+            buffer.frameLength = frames
+            let channels = try XCTUnwrap(buffer.floatChannelData)
+            for channel in 0..<Int(format.channelCount) {
+                for index in 0..<Int(frames) { channels[channel][index] = 0.3 * sin(Float(index) / 10) }
+            }
+            store.append(buffer)
+        }
+        try feed(before, seconds: 0.5)
+        try feed(after, seconds: 1)
+        store.finishConversion()
+        XCTAssertNil(store.failure)
+        XCTAssertEqual(store.bufferCount, 2)
+        XCTAssertEqual(store.audio().duration, 1.5, accuracy: 0.02)
+    }
     func testStreamingConversionRetainsDurationAndPitch() throws {
         let inputFormat = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 2, interleaved: false))
         let outputFormat = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false))

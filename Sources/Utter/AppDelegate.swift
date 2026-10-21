@@ -2,10 +2,12 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var settingsWindow: NSWindow?
     private let model = AppModel()
+    /// Menu items showing Groq's daily allowance; rebuilt each time the menu opens.
+    private var usageItems: [NSMenuItem] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if NSClassFromString("XCTestCase") == nil,
@@ -42,12 +44,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         quitItem.target = NSApp
         menu.addItem(quitItem)
+        menu.delegate = self
         item.menu = menu
         statusItem = item
         if NSClassFromString("XCTestCase") == nil {
             model.start()
             if !model.accessibilityGranted || !model.microphoneGranted { showSettings() }
         }
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        for item in usageItems { menu.removeItem(item) }
+        usageItems = Self.usageMenuItems(GroqUsageStore.shared.all(), now: Date())
+        for (offset, item) in usageItems.enumerated() { menu.insertItem(item, at: offset) }
+    }
+
+    /// "Groq · left today" header, one line per model, and a separator. Empty until the first Groq reply.
+    static func usageMenuItems(_ snapshots: [GroqUsageSnapshot], now: Date) -> [NSMenuItem] {
+        guard !snapshots.isEmpty else { return [] }
+        var items = [NSMenuItem.sectionHeader(title: "Groq · left today")]
+        for snapshot in snapshots {
+            let left = snapshot.estimatedRemaining(at: now)
+            let detail = left < snapshot.limit && snapshot.fullAt > now
+                ? "full in \(GroqUsageStore.describe(snapshot.fullAt.timeIntervalSince(now)))" : nil
+            // The title stays for VoiceOver and tests; the view shows the coloured bar.
+            let title = "\(snapshot.title): \(left.formatted()) of \(snapshot.limit.formatted())" + (detail.map { " · \($0)" } ?? "")
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            let row = NSHostingView(rootView: UsageMenuRow(title: snapshot.title, remaining: left, limit: snapshot.limit, detail: detail))
+            row.frame.size = row.fittingSize
+            item.view = row
+            items.append(item)
+        }
+        items.append(.separator())
+        return items
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

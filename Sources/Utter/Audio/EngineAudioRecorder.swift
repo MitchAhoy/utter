@@ -20,6 +20,7 @@ final class AudioBufferStore: @unchecked Sendable {
     private var samples: [Float] = []
     private var currentLevel: Float = 0
     private var errorMessage: String?
+    private var buffers = 0
     private let maximumSamples = RecordedAudio.sampleRate * 300
 
     init(outputFormat: AVAudioFormat, converter: AVAudioConverter) {
@@ -32,6 +33,16 @@ final class AudioBufferStore: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard samples.count < maximumSamples, errorMessage == nil else { return }
+        buffers += 1
+        // Bluetooth headsets change format mid-recording; follow whatever the microphone actually delivers.
+        if input.format != converter.inputFormat {
+            drainConverter()
+            guard let adapted = AVAudioConverter(from: input.format, to: outputFormat) else {
+                errorMessage = "Microphone audio conversion failed. Try recording again."
+                return
+            }
+            converter = adapted
+        }
         let capacity = AVAudioFrameCount(ceil(Double(input.frameLength) * outputFormat.sampleRate / input.format.sampleRate) + 64)
         guard let output = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: capacity) else {
             errorMessage = "Unable to allocate the audio conversion buffer."
@@ -60,14 +71,6 @@ final class AudioBufferStore: @unchecked Sendable {
     }
 
     var inputFormat: AVAudioFormat { lock.withLock { converter.inputFormat } }
-
-    /// Swaps in a converter for a new input format, keeping samples recorded so far.
-    func replaceConverter(_ newConverter: AVAudioConverter) {
-        lock.lock()
-        defer { lock.unlock() }
-        drainConverter()
-        converter = newConverter
-    }
 
     /// Caller must hold the lock.
     private func drainConverter() {
@@ -101,6 +104,8 @@ final class AudioBufferStore: @unchecked Sendable {
     }
 
     var level: Float { lock.withLock { currentLevel } }
+    /// Audio buffers received so far; used to notice a microphone that stopped delivering.
+    var bufferCount: Int { lock.withLock { buffers } }
     var failure: String? { lock.withLock { errorMessage } }
     func audio() -> RecordedAudio { lock.withLock { RecordedAudio(samples: samples) } }
 }
@@ -112,14 +117,32 @@ final class EngineAudioRecorder: AudioRecorder {
     private var store: AudioBufferStore?
     private var configurationObserver: NSObjectProtocol?
     private var configurationFailure: String?
+    private var watchdog: Task<Void, Never>?
     var level: Float { store?.level ?? 0 }
     var failure: String? { configurationFailure ?? store?.failure }
 
     func start() throws {
-        guard engine == nil else { throw RecordingError.message("A recording is already active.") }
+        guard store == nil else { throw RecordingError.message("A recording is already active.") }
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
             throw RecordingError.message("Allow microphone access in Utter Settings before recording.")
         }
+        guard let output = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false) else {
+            throw RecordingError.message("No usable microphone is connected.")
+        }
+        let (engine, format) = try makeEngine()
+        guard let converter = AVAudioConverter(from: format, to: output) else {
+            throw RecordingError.message("No usable microphone is connected.")
+        }
+        let store = AudioBufferStore(outputFormat: output, converter: converter)
+        try run(engine, format: format, store: store)
+        self.store = store
+        configurationFailure = nil
+        watchAudio(attempt: 0)
+    }
+
+    /// A new engine reads the microphone's current hardware format. An existing engine can keep
+    /// reporting the old format after a Bluetooth headset switches modes, and then every restart fails.
+    private func makeEngine() throws -> (AVAudioEngine, AVAudioFormat) {
         let engine = AVAudioEngine()
         let input = engine.inputNode
         if !selectedDeviceUID.isEmpty {
@@ -136,12 +159,15 @@ final class EngineAudioRecorder: AudioRecorder {
             }
         }
         let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0,
-              let output = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false),
-              let converter = AVAudioConverter(from: format, to: output) else {
+        guard format.sampleRate > 0, format.channelCount > 0 else {
             throw RecordingError.message("No usable microphone is connected.")
         }
-        let store = AudioBufferStore(outputFormat: output, converter: converter)
+        return (engine, format)
+    }
+
+    /// Taps and starts `engine`, then makes it the active engine and watches it for configuration changes.
+    private func run(_ engine: AVAudioEngine, format: AVAudioFormat, store: AudioBufferStore) throws {
+        let input = engine.inputNode
         input.installTap(onBus: 0, bufferSize: 2048, format: format, block: Self.makeTap(store: store))
         do {
             engine.prepare()
@@ -150,9 +176,8 @@ final class EngineAudioRecorder: AudioRecorder {
             input.removeTap(onBus: 0)
             throw RecordingError.message("Could not start the microphone: \(error.localizedDescription)")
         }
-        self.store = store
         self.engine = engine
-        configurationFailure = nil
+        removeConfigurationObserver()
         // Matches the engine by identity so the non-Sendable engine never crosses into the closure.
         let engineID = ObjectIdentifier(engine)
         configurationObserver = NotificationCenter.default.addObserver(
@@ -168,26 +193,45 @@ final class EngineAudioRecorder: AudioRecorder {
 
     /// macOS posts configuration changes for many harmless reasons, such as
     /// Bluetooth headsets switching to headset mode when recording starts.
-    /// Keep recording when nothing changed; otherwise restart on the new format.
+    /// Keep recording when nothing changed; otherwise reconnect on the new format.
     private func handleConfigurationChange(_ engine: AVAudioEngine) {
         guard let store else { return }
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        if engine.isRunning && format == store.inputFormat { return }
-        input.removeTap(onBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0,
-              let converter = AVAudioConverter(from: format, to: store.outputFormat) else {
-            configurationFailure = "Microphone changed or disconnected. Check the connection and record again."
-            return
+        if engine.isRunning && engine.inputNode.outputFormat(forBus: 0) == store.inputFormat { return }
+        reconnect(attempt: 0)
+    }
+
+    /// Replaces the engine with a fresh one, keeping everything recorded so far.
+    /// The buffer store adapts to the new format when its first buffers arrive.
+    private func reconnect(attempt: Int) {
+        guard let store else { return }
+        if let old = engine {
+            removeConfigurationObserver()
+            old.stop()
+            old.inputNode.removeTap(onBus: 0)
+            engine = nil
         }
-        store.replaceConverter(converter)
-        input.installTap(onBus: 0, bufferSize: 2048, format: format, block: Self.makeTap(store: store))
         do {
-            engine.prepare()
-            try engine.start()
+            let (fresh, format) = try makeEngine()
+            try run(fresh, format: format, store: store)
         } catch {
-            input.removeTap(onBus: 0)
-            configurationFailure = "Microphone changed or disconnected. Check the connection and record again."
+            // The headset may still be switching; the watchdog tries again shortly.
+        }
+        watchAudio(attempt: attempt)
+    }
+
+    /// Confirms audio is arriving shortly after a (re)start, and reconnects if it is not.
+    private func watchAudio(attempt: Int) {
+        watchdog?.cancel()
+        guard let store else { return }
+        let before = store.bufferCount
+        watchdog = Task { [weak self, weak store] in
+            do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+            guard let self, let store, self.store === store, store.bufferCount == before else { return }
+            if attempt < 8 {
+                self.reconnect(attempt: attempt + 1)
+            } else {
+                self.configurationFailure = "The microphone stopped sending audio. If you're using AirPods or another Bluetooth headset, try again or choose the built-in microphone in General settings."
+            }
         }
     }
 
@@ -198,18 +242,21 @@ final class EngineAudioRecorder: AudioRecorder {
     }
 
     func stop() throws -> RecordedAudio {
-        guard let engine, let store else { throw RecordingError.message("No recording is active.") }
+        guard let store else { throw RecordingError.message("No recording is active.") }
         removeConfigurationObserver()
+        watchdog?.cancel(); watchdog = nil
         let configurationFailure = self.configurationFailure
-        engine.stop()
-        engine.inputNode.removeTap(onBus: 0)
+        if let engine {
+            engine.stop()
+            engine.inputNode.removeTap(onBus: 0)
+        }
         self.engine = nil
         self.store = nil
         store.finishConversion()
         if let configurationFailure { throw RecordingError.message(configurationFailure) }
         if let failure = store.failure { throw RecordingError.message(failure) }
         let audio = store.audio()
-        guard !audio.samples.isEmpty else { throw RecordingError.message("No audio received. Check your microphone.") }
+        guard !audio.samples.isEmpty else { throw RecordingError.message("No audio received. If you're using AirPods or another Bluetooth headset, try again or choose the built-in microphone in General settings.") }
         return audio
     }
 
@@ -220,6 +267,7 @@ final class EngineAudioRecorder: AudioRecorder {
 
     func cancel() {
         removeConfigurationObserver()
+        watchdog?.cancel(); watchdog = nil
         configurationFailure = nil
         if let engine {
             engine.stop()

@@ -230,3 +230,64 @@ final class GroqFallbackTests: XCTestCase {
         XCTAssertEqual(GroqCleanupProvider.fastestReasoning(for: "qwen/qwen3.8-27b"), "none")
     }
 }
+
+final class GroqUsageTests: XCTestCase {
+    func testDurationParsing() {
+        XCTAssertEqual(GroqUsageStore.seconds("3h7m12s"), 11232)
+        XCTAssertEqual(GroqUsageStore.seconds("1m26.4s") ?? 0, 86.4, accuracy: 0.001)
+        XCTAssertEqual(GroqUsageStore.seconds("577ms") ?? 0, 0.577, accuracy: 0.001)
+        XCTAssertNil(GroqUsageStore.seconds("soon"))
+    }
+
+    func testRecordsHeadersAndEstimatesRefill() throws {
+        let suite = "UtterUsage-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = GroqUsageStore(defaults: defaults)
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        let response = try XCTUnwrap(HTTPURLResponse(url: URL(fileURLWithPath: "/"), statusCode: 200, httpVersion: nil, headerFields: [
+            "x-ratelimit-limit-requests": "1000", "x-ratelimit-remaining-requests": "800", "x-ratelimit-reset-requests": "1h",
+        ]))
+        store.record(model: "qwen/qwen3.8-27b", response: response, now: start)
+        let snapshot = try XCTUnwrap(GroqUsageStore(defaults: defaults).all().first)
+        XCTAssertEqual(snapshot.title, "Cleanup · qwen3.8-27b")
+        XCTAssertEqual(snapshot.estimatedRemaining(at: start), 800)
+        XCTAssertEqual(snapshot.estimatedRemaining(at: start.addingTimeInterval(1800)), 900)
+        XCTAssertEqual(snapshot.estimatedRemaining(at: start.addingTimeInterval(7200)), 1000)
+        XCTAssertFalse(snapshot.isLow(at: start))
+        let low = GroqUsageSnapshot(model: "whisper-large-v3-turbo", limit: 2000, remaining: 150, secondsUntilFull: 80000, updated: start)
+        XCTAssertTrue(low.isLow(at: start))
+        XCTAssertEqual(low.title, "Speech to text")
+    }
+
+    @MainActor func testMenuShowsOneLinePerModel() {
+        let now = Date()
+        let items = AppDelegate.usageMenuItems([
+            GroqUsageSnapshot(model: "whisper-large-v3-turbo", limit: 2000, remaining: 1998, secondsUntilFull: 86, updated: now),
+            GroqUsageSnapshot(model: "qwen/qwen3.8-27b", limit: 1000, remaining: 870, secondsUntilFull: 11232, updated: now),
+        ], now: now)
+        XCTAssertEqual(items.map(\.title), ["Groq · left today", "Speech to text: 1,998 of 2,000 · full in 2m",
+                                            "Cleanup · qwen3.8-27b: 870 of 1,000 · full in 3h 8m", ""])
+        XCTAssertTrue(AppDelegate.usageMenuItems([], now: now).isEmpty)
+    }
+}
+
+final class UsageLevelTests: XCTestCase {
+    func testColourBands() {
+        XCTAssertEqual(UsageLevel(fraction: 1), .plenty)
+        XCTAssertEqual(UsageLevel(fraction: 0.6), .plenty)
+        XCTAssertEqual(UsageLevel(fraction: 0.59), .middling)
+        XCTAssertEqual(UsageLevel(fraction: 0.4), .middling)
+        XCTAssertEqual(UsageLevel(fraction: 0.39), .low)
+        XCTAssertEqual(UsageLevel(fraction: 0), .low)
+    }
+
+    @MainActor func testMenuRowsUseBarViews() {
+        let now = Date()
+        let items = AppDelegate.usageMenuItems([
+            GroqUsageSnapshot(model: "whisper-large-v3-turbo", limit: 2000, remaining: 2000, secondsUntilFull: 0, updated: now),
+        ], now: now)
+        XCTAssertNotNil(items[1].view)
+        XCTAssertGreaterThan(items[1].view?.frame.height ?? 0, 30)
+    }
+}

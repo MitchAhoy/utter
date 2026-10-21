@@ -106,6 +106,9 @@ final class AppModel: ObservableObject {
                 let sample = self.pipeline.activePath == .sample
                 var message = sample ? "Sample text inserted" : "Inserted · \(self.pipeline.activePath?.title ?? "Dictation")"
                 if !sample, let note = self.pipeline.lastCleanupNote { message += "\n\(note)" }
+                if !sample, let low = GroqUsageStore.shared.all().first(where: { $0.isLow() }) {
+                    message += "\nGroq \(low.title.lowercased()): \(low.estimatedRemaining()) left today"
+                }
                 self.status = message.replacingOccurrences(of: "\n", with: " · ")
                 self.session.completed(message)
             case .failed(let message):

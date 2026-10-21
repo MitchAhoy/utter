@@ -39,7 +39,7 @@ struct CloudTranscriptionProvider: TranscriptionProvider {
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(body.boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = body.data
-        let (data, status) = try await transport.send(request)
+        let (data, status) = try await transport.send(request, usageModel: provider.model)
         guard (200..<300).contains(status) else { throw CloudError.http(status) }
         struct Response: Decodable { let text: String }
         guard let response = try? JSONDecoder().decode(Response.self, from: data),
