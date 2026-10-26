@@ -51,6 +51,12 @@ final class RecordingSession {
         }
     }
 
+    /// Lets a toggle tap start a new recording after the five-minute deadline,
+    /// which otherwise waits for a hold-key release.
+    func rearm() {
+        if !isRecording { armed = true }
+    }
+
     private func begin() {
         dismiss?.cancel()
         do {

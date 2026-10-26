@@ -114,6 +114,9 @@ final class AudioBufferStore: @unchecked Sendable {
 final class EngineAudioRecorder: AudioRecorder {
     var selectedDeviceUID = ""
     private var engine: AVAudioEngine?
+    /// Used instead of the engine when a specific microphone is chosen.
+    private var capture: DeviceInputCapture?
+    private var captureUID: String?
     private var store: AudioBufferStore?
     private var configurationObserver: NSObjectProtocol?
     private var configurationFailure: String?
@@ -129,35 +132,35 @@ final class EngineAudioRecorder: AudioRecorder {
         guard let output = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false) else {
             throw RecordingError.message("No usable microphone is connected.")
         }
-        let (engine, format) = try makeEngine()
-        guard let converter = AVAudioConverter(from: format, to: output) else {
-            throw RecordingError.message("No usable microphone is connected.")
+        let store: AudioBufferStore
+        if !selectedDeviceUID.isEmpty {
+            let capture = try DeviceInputCapture(uid: selectedDeviceUID)
+            guard let converter = AVAudioConverter(from: capture.format, to: output) else {
+                throw RecordingError.message("No usable microphone is connected.")
+            }
+            store = AudioBufferStore(outputFormat: output, converter: converter)
+            try capture.start(store: store)
+            self.capture = capture
+            captureUID = selectedDeviceUID
+        } else {
+            let (engine, format) = try makeEngine()
+            guard let converter = AVAudioConverter(from: format, to: output) else {
+                throw RecordingError.message("No usable microphone is connected.")
+            }
+            store = AudioBufferStore(outputFormat: output, converter: converter)
+            try run(engine, format: format, store: store)
         }
-        let store = AudioBufferStore(outputFormat: output, converter: converter)
-        try run(engine, format: format, store: store)
         self.store = store
         configurationFailure = nil
         watchAudio(attempt: 0)
     }
 
-    /// A new engine reads the microphone's current hardware format. An existing engine can keep
-    /// reporting the old format after a Bluetooth headset switches modes, and then every restart fails.
+    /// Records from the system default microphone. A new engine reads the microphone's current
+    /// hardware format; an existing engine can keep reporting the old format after a Bluetooth
+    /// headset switches modes, and then every restart fails.
     private func makeEngine() throws -> (AVAudioEngine, AVAudioFormat) {
         let engine = AVAudioEngine()
         let input = engine.inputNode
-        if !selectedDeviceUID.isEmpty {
-            guard let device = AudioInputDevices.available().first(where: { $0.id == selectedDeviceUID }),
-                  let unit = input.audioUnit else {
-                throw RecordingError.message("The selected microphone is unavailable. Choose another microphone in General settings.")
-            }
-            var id = device.deviceID
-            let result = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice,
-                                              kAudioUnitScope_Global, 0, &id,
-                                              UInt32(MemoryLayout.size(ofValue: id)))
-            guard result == noErr else {
-                throw RecordingError.message("Could not select the microphone (error \(result)).")
-            }
-        }
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw RecordingError.message("No usable microphone is connected.")
@@ -204,6 +207,19 @@ final class EngineAudioRecorder: AudioRecorder {
     /// The buffer store adapts to the new format when its first buffers arrive.
     private func reconnect(attempt: Int) {
         guard let store else { return }
+        if let uid = captureUID {
+            capture?.stop()
+            capture = nil
+            do {
+                let fresh = try DeviceInputCapture(uid: uid)
+                try fresh.start(store: store)
+                capture = fresh
+            } catch {
+                // The microphone may be reconnecting; the watchdog tries again shortly.
+            }
+            watchAudio(attempt: attempt)
+            return
+        }
         if let old = engine {
             removeConfigurationObserver()
             old.stop()
@@ -246,6 +262,7 @@ final class EngineAudioRecorder: AudioRecorder {
         removeConfigurationObserver()
         watchdog?.cancel(); watchdog = nil
         let configurationFailure = self.configurationFailure
+        stopCapture()
         if let engine {
             engine.stop()
             engine.inputNode.removeTap(onBus: 0)
@@ -269,11 +286,18 @@ final class EngineAudioRecorder: AudioRecorder {
         removeConfigurationObserver()
         watchdog?.cancel(); watchdog = nil
         configurationFailure = nil
+        stopCapture()
         if let engine {
             engine.stop()
             engine.inputNode.removeTap(onBus: 0)
         }
         engine = nil
         store = nil
+    }
+
+    private func stopCapture() {
+        capture?.stop()
+        capture = nil
+        captureUID = nil
     }
 }

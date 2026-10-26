@@ -51,4 +51,22 @@ final class HotkeyStateTests: XCTestCase {
             XCTAssertEqual(state.transition(pressed: false), .up)
         }
     }
+
+    func testToggleTapStartsThenStops() {
+        var toggle = ToggleState()
+        XCTAssertEqual(toggle.tap(isRecording: false), .down)
+        XCTAssertEqual(toggle.tap(isRecording: true), .up)
+        XCTAssertFalse(toggle.active)
+    }
+    func testToggleIgnoresHoldRecording() {
+        var toggle = ToggleState()
+        XCTAssertNil(toggle.tap(isRecording: true))
+        XCTAssertFalse(toggle.active)
+    }
+    func testToggleStartsFreshAfterRecordingEndsElsewhere() {
+        var toggle = ToggleState()
+        _ = toggle.tap(isRecording: false)
+        toggle.recordingEnded()
+        XCTAssertEqual(toggle.tap(isRecording: false), .down)
+    }
 }

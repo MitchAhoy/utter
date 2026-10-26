@@ -64,6 +64,7 @@ final class AppModel: ObservableObject {
     private var generation = 0
     private var commandRecording = false
     private var commandShortcutActive = false
+    private var toggle = ToggleState()
 
     init(cloud: CloudSettings = CloudSettings(), historyStore: HistoryStore = HistoryStore()) {
         self.cloud = cloud
@@ -83,6 +84,8 @@ final class AppModel: ObservableObject {
         KeyboardShortcuts.onKeyDown(for: .editSelection) { [weak self] in self?.handleCommandKey(down: true) }
         KeyboardShortcuts.onKeyUp(for: .editSelection) { [weak self] in self?.handleCommandKey(down: false) }
         KeyboardShortcuts.disable(.editSelection)
+        KeyboardShortcuts.onKeyDown(for: .toggleRecording) { [weak self] in self?.handleToggleTap() }
+        KeyboardShortcuts.disable(.toggleRecording)
         session.onSound = { [weak self] starting in
             guard self?.sounds == true else { return }
             NSSound(named: starting ? "Tink" : "Pop")?.play()
@@ -90,7 +93,7 @@ final class AppModel: ObservableObject {
         session.onStateChange = { [weak self] in
             guard let self else { return }
             self.isRecording = self.session.isRecording
-            if self.isRecording { self.generation += 1 }
+            if self.isRecording { self.generation += 1 } else { self.toggle.recordingEnded() }
         }
         session.onClip = { [weak self] audio in self?.received(audio) }
         pipeline.onResult = { [weak self] raw, cleaned, context, path in
@@ -155,6 +158,7 @@ final class AppModel: ObservableObject {
             commandRecording = false
             session.cancel()
             if shortcutReady { monitor.stop() }
+            KeyboardShortcuts.disable(.toggleRecording)
             pipeline.cancel()
             shortcutReady = false
             status = "Enable this copy of Utter in Accessibility under Permissions to use the shortcut and paste."
@@ -164,6 +168,7 @@ final class AppModel: ObservableObject {
         if shortcutReady { monitor.stop(); shortcutReady = false }
         do {
             try monitor.start { [weak self] event in self?.handleHotkey(event) }
+            KeyboardShortcuts.enable(.toggleRecording)
             shortcutReady = true
             status = microphoneGranted ? (mode == .local && !localModels.isReady
                 ? "Prepare a speech model in Transcription settings to start dictation."
@@ -320,6 +325,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func handleToggleTap() {
+        guard shortcutReady, !commandRecording,
+              let event = toggle.tap(isRecording: session.isRecording) else { return }
+        if event == .down { session.rearm() }
+        handleHotkey(event)
+        if event == .down && !session.isRecording { toggle.recordingEnded() }
+    }
+
     private func handleCommandKey(down: Bool) {
         if !down {
             guard commandRecording else { return }
@@ -402,6 +415,7 @@ final class AppModel: ObservableObject {
         permissionTask?.cancel()
         permissionTask = nil
         KeyboardShortcuts.disable(.editSelection)
+        KeyboardShortcuts.disable(.toggleRecording)
         captureRequest?.selection?.cancel()
         monitor.stop()
         pipeline.cancel()

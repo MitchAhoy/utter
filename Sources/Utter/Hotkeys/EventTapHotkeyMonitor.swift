@@ -5,6 +5,7 @@ import KeyboardShortcuts
 extension KeyboardShortcuts.Name {
     static let editSelection = Self("editSelection", initial: .init(.space, modifiers: [.control, .option]))
     static let pushToTalk = Self("pushToTalk")
+    static let toggleRecording = Self("toggleRecording", initial: .init(.f18))
 }
 
 @MainActor

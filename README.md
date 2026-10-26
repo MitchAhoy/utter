@@ -6,7 +6,7 @@ Native, open-source push-to-talk dictation for macOS 14+. Swift 6, SwiftUI and A
 
 *Illustrated workflow; this GIF is not a recording of the app.*
 
-Hold your shortcut, speak, and release. Utter transcribes, optionally cleans the text, and pastes at the cursor without changing your clipboard. Right Option is the initial shortcut; Fn/Globe, Right Command and custom combinations are available. Accidental taps under 250 ms are ignored; recordings stop at five minutes. Up to three completed/processing clips queue in order.
+Hold your shortcut, speak, and release. Utter transcribes, optionally cleans the text, and pastes at the cursor without changing your clipboard. Right Option is the initial shortcut; Fn/Globe, Right Command and custom combinations are available. A separate tap-to-start/stop shortcut (F18 by default) suits buttons that only send a quick press, such as a DJI mic button remapped with Karabiner-Elements. Accidental taps under 250 ms are ignored; recordings stop at five minutes. Up to three completed/processing clips queue in order.
 
 ## Install and start
 

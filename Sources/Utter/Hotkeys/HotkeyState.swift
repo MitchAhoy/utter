@@ -37,3 +37,21 @@ struct HotkeyState {
     }
     mutating func reset() { isDown = false }
 }
+
+/// Tap once to start recording, tap again to stop. Used for buttons that only send
+/// a quick press, such as a DJI mic button remapped to F18 with Karabiner.
+struct ToggleState {
+    private(set) var active = false
+    mutating func tap(isRecording: Bool) -> HotkeyEvent? {
+        if isRecording {
+            // A hold-to-talk recording in progress is left alone.
+            guard active else { return nil }
+            active = false
+            return .up
+        }
+        active = true
+        return .down
+    }
+    /// Call whenever recording stops for any reason (deadline, cancel, failure).
+    mutating func recordingEnded() { active = false }
+}

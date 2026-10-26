@@ -21,6 +21,9 @@ struct GeneralSettingsView: View {
                     Text("Set System Settings → Keyboard → “Press 🌐 key to” to “Do Nothing” to avoid the emoji picker or macOS dictation.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                KeyboardShortcuts.Recorder("Tap to start/stop", name: .toggleRecording)
+                Text("Tap once to start recording and again to stop and paste. F18 by default, for buttons like a DJI mic remapped with Karabiner-Elements.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Toggle("Play start and stop sounds", isOn: $model.sounds)
                 Text("Taps shorter than 250 ms are ignored. Recordings stop after 5 minutes.")
                     .font(.caption).foregroundStyle(.secondary)

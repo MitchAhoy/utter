@@ -110,6 +110,16 @@ final class RecordingSessionTests: XCTestCase {
         XCTAssertEqual(recorder.starts, 2)
         session.cancel()
     }
+    @MainActor func testRearmAllowsToggleStartAfterCap() async {
+        let (session, recorder, _, clock) = fixture()
+        session.handle(.down)
+        clock.value = 300
+        session.finish()
+        session.rearm()
+        session.handle(.down)
+        XCTAssertEqual(recorder.starts, 2)
+        session.cancel()
+    }
     @MainActor func testCancellationDiscardsAndResets() async {
         let (session, recorder, overlay, _) = fixture()
         session.onClip = { _ in XCTFail("Cancelled audio must be discarded") }
