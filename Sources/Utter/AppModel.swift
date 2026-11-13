@@ -36,6 +36,12 @@ final class AppModel: ObservableObject {
     lazy var history = HistoryController(settings: features, store: historyStore)
     let localModels = LocalModelController()
     let launchAtLogin = LaunchAtLoginController()
+    let meetingSettings = MeetingSettings()
+    lazy var meetings = MeetingsController(settings: meetingSettings)
+    /// Called with the app's name when a call app has started using the microphone.
+    var onMeetingOffer: ((String) -> Void)?
+    var onOpenMeetings: (() -> Void)?
+    private var detection = MeetingDetection()
     @Published private(set) var accessibilityGranted = false
     @Published private(set) var microphoneGranted = false
     @Published private(set) var shortcutReady = false
@@ -94,6 +100,7 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             self.isRecording = self.session.isRecording
             if self.isRecording { self.generation += 1 } else { self.toggle.recordingEnded() }
+            self.meetings.setDictating(self.isRecording)
         }
         session.onClip = { [weak self] audio in self?.received(audio) }
         pipeline.onResult = { [weak self] raw, cleaned, context, path in
@@ -121,6 +128,18 @@ final class AppModel: ObservableObject {
                 self.isProcessing = false
             }
         }
+        meetings.microphoneUID = { [weak self] in self?.microphoneUID ?? "" }
+        meetings.makeTranscriber = { [weak self] in
+            guard let self else { throw CloudError.disabled }
+            return try self.meetingTranscriber()
+        }
+        meetings.makeAssistant = { [weak self] in
+            guard let self else { throw CloudError.disabled }
+            guard self.cloud.enabled else { throw CloudError.disabled }
+            guard self.cloud.storedKeys.contains(.groq) else { throw CloudError.missingKey(.groq) }
+            return MeetingAssistant(provider: GroqCleanupProvider(model: MeetingAssistant.defaultModel, timeout: 60,
+                                                                  authorize: self.cloud.authorization(.groq)))
+        }
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(willSleep),
                                                           name: NSWorkspace.willSleepNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(willSleep),
@@ -137,6 +156,7 @@ final class AppModel: ObservableObject {
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
                 self?.refreshPermissions()
+                self?.checkForCalls()
             }
         }
     }
@@ -178,6 +198,41 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Meetings follow the dictation mode: cloud when it is set up, with the on-device model as a backup.
+    private func meetingTranscriber() throws -> MeetingTranscriber {
+        let local: (any TranscriptionProvider)? = localModels.isReady ? localModels.provider : nil
+        let primary: any TranscriptionProvider
+        var fallback: (any TranscriptionProvider)?
+        switch mode {
+        case .local, .recordingOnly:
+            guard let local else { throw LocalModelError.notInstalled }
+            primary = local
+        case .cloud, .auto:
+            if cloud.enabled && cloud.storedKeys.contains(cloud.provider.service) {
+                primary = cloud.transcriber(); fallback = local
+            } else if mode == .auto, let local {
+                primary = local
+            } else if !cloud.enabled {
+                throw CloudError.disabled
+            } else {
+                throw CloudError.missingKey(cloud.provider.service)
+            }
+        }
+        let terms = features.terms
+        return MeetingTranscriber(primary: primary, fallback: fallback, language: language.isEmpty ? nil : language,
+                                  prompt: terms.isEmpty ? nil : terms.joined(separator: ", "))
+    }
+
+    /// Offers meeting notes when a call app takes the microphone, and stops them when the call ends.
+    private func checkForCalls() {
+        guard meetingSettings.detectMeetings || meetings.isRecording else { return }
+        switch detection.update(callApps: MicrophoneUsers.callApps(), recording: meetings.isRecording, now: Date()) {
+        case .offer(let app): if meetingSettings.detectMeetings { onMeetingOffer?(app) }
+        case .callEnded: meetings.stop(reason: "The call ended, so meeting notes stopped.")
+        case nil: break
+        }
+    }
+
     func requestMicrophone() async {
         _ = await AVCaptureDevice.requestAccess(for: .audio)
         refreshPermissions()
@@ -188,6 +243,7 @@ final class AppModel: ObservableObject {
         openPane("Privacy_Accessibility")
     }
     func openMicrophone() { openPane("Privacy_Microphone") }
+    func openSystemAudio() { openPane("Privacy_ScreenCapture") }
     private func openPane(_ pane: String) {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
             NSWorkspace.shared.open(url)
@@ -408,10 +464,12 @@ final class AppModel: ObservableObject {
         pasteTestArmed = false
         pipeline.cancel()
         session.cancel()
+        meetings.stop(reason: "Meeting notes stopped because the Mac went to sleep.")
     }
 
     func stop() {
         localModels.cancel()
+        meetings.stop(enhance: false)
         permissionTask?.cancel()
         permissionTask = nil
         KeyboardShortcuts.disable(.editSelection)

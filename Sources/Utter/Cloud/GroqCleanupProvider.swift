@@ -50,15 +50,20 @@ struct GroqCleanupProvider: CleanupProvider, CommandProvider {
         return fast[(index + 1) % fast.count]
     }
     private func request(system: String, user: String, outputEstimate: Int) async throws -> String {
+        try await request(messages: [["role": "system", "content": system], ["role": "user", "content": user]],
+                          answerBudget: min(8192, max(512, (outputEstimate + 1) / 2)))
+    }
+    /// Tries the chosen model, then the other fast model when Groq says this one is over its per-minute allowance
+    /// (429) or that the request is too large for it (413).
+    private func request(messages: [[String: String]], answerBudget: Int) async throws -> String {
         do {
-            return try await request(model: model, effort: reasoningEffort, system: system, user: user, outputEstimate: outputEstimate)
-        } catch CloudError.http(429) {
-            guard let other = Self.fallback(for: model) else { throw CloudError.http(429) }
-            return try await request(model: other, effort: Self.fastestReasoning(for: other),
-                                     system: system, user: user, outputEstimate: outputEstimate)
+            return try await request(model: model, effort: reasoningEffort, messages: messages, answerBudget: answerBudget)
+        } catch let error as CloudError {
+            guard case .http(let code) = error, code == 429 || code == 413, let other = Self.fallback(for: model) else { throw error }
+            return try await request(model: other, effort: Self.fastestReasoning(for: other), messages: messages, answerBudget: answerBudget)
         }
     }
-    private func request(model: String, effort: String?, system: String, user: String, outputEstimate: Int) async throws -> String {
+    private func request(model: String, effort: String?, messages: [[String: String]], answerBudget: Int) async throws -> String {
         let key = try await authorize()
         try Task.checkCancellation()
         var request = URLRequest(url: Self.endpoint)
@@ -66,11 +71,10 @@ struct GroqCleanupProvider: CleanupProvider, CommandProvider {
         request.timeoutInterval = max(0.2, timeout)
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let answerBudget = min(8192, max(512, (outputEstimate + 1) / 2))
         var payload: [String: Any] = [
             "model": model, "temperature": 0,
             "max_completion_tokens": answerBudget + (effort != nil && effort != "none" ? 1024 : 0),
-            "messages": [["role": "system", "content": system], ["role": "user", "content": user]]
+            "messages": messages
         ]
         if let effort { payload["reasoning_effort"] = effort }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
@@ -89,5 +93,13 @@ struct GroqCleanupProvider: CleanupProvider, CommandProvider {
         let text = (choice.message.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { throw CloudError.invalidResponse }
         return text
+    }
+}
+
+extension GroqCleanupProvider: ChatProvider {
+    func reply(system: String, turns: [ChatTurn], maxTokens: Int) async throws -> String {
+        let messages = [["role": "system", "content": system]]
+            + turns.map { ["role": $0.fromUser ? "user" : "assistant", "content": $0.text] }
+        return try await request(messages: messages, answerBudget: maxTokens)
     }
 }

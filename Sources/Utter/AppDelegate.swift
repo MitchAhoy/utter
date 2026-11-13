@@ -5,6 +5,9 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var settingsWindow: NSWindow?
+    private var meetingsWindow: NSWindow?
+    private var meetingItem: NSMenuItem?
+    private let prompt = MeetingPrompt()
     private let model = AppModel()
     /// Menu items showing Groq's daily allowance; rebuilt each time the menu opens.
     private var usageItems: [NSMenuItem] = []
@@ -33,6 +36,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.button?.setAccessibilityLabel("Utter")
 
         let menu = NSMenu(title: "Utter")
+        let meetingItem = NSMenuItem(title: "Start Meeting Notes", action: #selector(toggleMeeting), keyEquivalent: "")
+        meetingItem.target = self
+        menu.addItem(meetingItem)
+        self.meetingItem = meetingItem
+        let meetingsItem = NSMenuItem(title: "Meetings…", action: #selector(showMeetings), keyEquivalent: "")
+        meetingsItem.target = self
+        menu.addItem(meetingsItem)
+        menu.addItem(.separator())
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
@@ -47,13 +58,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         item.menu = menu
         statusItem = item
+        model.onOpenMeetings = { [weak self] in self?.showMeetings() }
+        model.onMeetingOffer = { [weak self] app in
+            guard let self else { return }
+            self.prompt.show(app: app) { [weak self] in
+                self?.model.meetings.start()
+                self?.showMeetings()
+            }
+        }
+        model.meetings.onRecordingChange = { [weak self] recording in
+            self?.prompt.close()
+            let symbol = recording ? "record.circle" : "waveform"
+            if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: recording ? "Utter, recording a meeting" : "Utter") {
+                image.isTemplate = true
+                image.size = NSSize(width: 16, height: 16)
+                self?.statusItem?.button?.image = image
+            }
+        }
+        model.meetings.confirmConsent = {
+            let alert = NSAlert()
+            alert.messageText = "Tell people you're taking a transcript"
+            alert.informativeText = "Utter will transcribe your microphone and the call audio on this Mac. No audio is saved, but in many places you must tell the other people that the conversation is being transcribed."
+            alert.addButton(withTitle: "Start Meeting Notes")
+            alert.addButton(withTitle: "Cancel")
+            NSApp.activate(ignoringOtherApps: true)
+            return alert.runModal() == .alertFirstButtonReturn
+        }
         if NSClassFromString("XCTestCase") == nil {
             model.start()
             if !model.accessibilityGranted || !model.microphoneGranted { showSettings() }
         }
     }
 
+    @objc private func toggleMeeting() {
+        if model.meetings.isRecording { model.meetings.stop() } else { model.meetings.start() }
+        showMeetings()
+    }
+
+    @objc private func showMeetings() {
+        if meetingsWindow == nil {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 980, height: 680),
+                                  styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                                  backing: .buffered, defer: false)
+            window.title = "Utter Meetings"
+            window.contentView = NSHostingView(rootView: MeetingsView(meetings: model.meetings, settings: model.meetingSettings))
+            window.isReleasedWhenClosed = false
+            window.setFrameAutosaveName("Utter.Meetings")
+            window.center()
+            meetingsWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        meetingsWindow?.makeKeyAndOrderFront(nil)
+        model.meetings.reload()
+    }
+
     func menuWillOpen(_ menu: NSMenu) {
+        meetingItem?.title = model.meetings.isRecording ? "Stop Meeting Notes" : "Start Meeting Notes"
         for item in usageItems { menu.removeItem(item) }
         usageItems = Self.usageMenuItems(GroqUsageStore.shared.all(), now: Date())
         for (offset, item) in usageItems.enumerated() { menu.insertItem(item, at: offset) }

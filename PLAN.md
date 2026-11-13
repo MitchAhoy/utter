@@ -1,6 +1,6 @@
 # Utter — Plan
 
-An open-source, push-to-talk dictation app for macOS. It's a self-hosted alternative to Wispr Flow's dictation features. Meeting notes are out of scope for now.
+An open-source, push-to-talk dictation app for macOS. It's a self-hosted alternative to Wispr Flow's dictation features. Meeting notes (bot-free call transcription, enhanced notes and questions, in the style of Granola) were added in November 2026; see the README.
 
 **Decisions so far**
 - **Native macOS app**: Swift 6, SwiftUI with AppKit, running as a menu bar app.
@@ -34,7 +34,8 @@ Target latency from key release to text appearing is under 1.2 seconds for a typ
 | **4. Hybrid** | Local WhisperKit fallback, settings UI, Keychain storage, onboarding for permissions | It works offline, and a fresh install walks the user through granting permissions |
 | **5. Ship** | Signing, notarization, DMG, Sparkle auto-update, Homebrew cask, README | A stranger can install it in two minutes |
 | **6. v1.x** | Personal dictionary, snippets, command mode, per-app styles, local history | Each feature ships behind a setting |
-| **Later** | Meeting notes | — |
+| **7. Meeting notes** | Record mic and call audio, live transcript, enhanced notes, questions, call detection | A Google Meet call produces a transcript and notes with nothing joining the call |
+| **Later** | Calendar titles, folders, real speaker names | — |
 
 A rough time budget, building with Claude Code: phases 0–3 take a weekend or two, phases 4–5 another one or two weekends, and each phase 6 feature takes an evening or two. The slow parts are permissions, hotkey edge cases and code signing, not the AI work.
 

@@ -25,6 +25,11 @@ struct PermissionsSettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
+            Section("Meeting notes") {
+                Text("To transcribe the other people on a call, macOS asks once to let Utter record system audio. If the transcript only ever shows “Me”, allow Utter under Screen & System Audio Recording → System Audio Recording Only.")
+                    .font(.callout)
+                Button("Open System Audio Settings…") { model.openSystemAudio() }
+            }
         }
         .formStyle(.grouped)
     }

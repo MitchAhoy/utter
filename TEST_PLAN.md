@@ -72,3 +72,25 @@ Use a harmless terminal sample such as `# Utter paste test` with no trailing new
 - [ ] Install from DMG; permission prompts and launch at login work from Applications.
 - [ ] Publish a newer signed Sparkle release, then verify check, download, signature verification, installation and relaunch.
 - [ ] Install the generated Homebrew cask from the actual tap and verify checksum and app launch.
+
+## Meeting notes
+
+Automated: `bash scripts/test-local.sh` (unit tests) and `UtterMeetingCheck` (live end-to-end with a Groq key). The items below need a real call.
+
+- [ ] Menu bar → Start Meeting Notes. The one-time transcription reminder appears; macOS asks for System Audio Recording once. The menu bar icon changes to a record symbol.
+- [ ] Join a Google Meet in Chrome with a second device. Within about 30 seconds both sides appear, yours as Me and the other as Them, in spoken order.
+- [ ] Repeat on AirPods, on the DJI mic with AirPods as output, and on the built-in speakers. On speakers, the other side must not also appear as Me.
+- [ ] Connect or disconnect headphones mid-call: both sides keep transcribing within a few seconds.
+- [ ] Dictate into another app during the call: dictation pastes normally and its words do not appear in the meeting transcript.
+- [ ] Type in My notes during the call. Press Stop: Enhanced appears, keeps your points, and each time link jumps to that line in the transcript.
+- [ ] Change the template: notes are rewritten in the new layout; My notes is unchanged.
+- [ ] Ask a question the call answered and one it did not: the first cites a time, the second says it wasn't discussed. Run `/action items`.
+- [ ] All meetings → ask something that spans two meetings: the answer names each meeting.
+- [ ] Without recording, join a call: the "Meeting detected" popup appears within about 5 seconds, does not steal focus, and nothing records unless Take Notes is clicked. Dismiss it: it does not reappear for the same call.
+- [ ] Leave the call while recording: notes stop by themselves within about 15 seconds and Enhanced is written.
+- [ ] Back-to-back calls: stop between them, or confirm the second call gets its own popup after the first ends.
+- [ ] Close the lid mid-call: the meeting stops and what was said is kept.
+- [ ] Resume a stopped meeting: new lines are added after the earlier ones with later times.
+- [ ] Search finds a word that appears only in a transcript. Delete a meeting: it disappears from search too.
+- [ ] Copy Notes, Copy Transcript and Export Markdown produce the expected text.
+- [ ] After a meeting, no audio file exists under `~/Library/Application Support/Utter/`.

@@ -2,7 +2,7 @@ name: Utter
 options:
   minimumXcodeGenVersion: 2.44.0
   deploymentTarget:
-    macOS: "14.0"
+    macOS: "14.2"
   createIntermediateGroups: true
 configs:
   Debug: debug
@@ -14,7 +14,7 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.2"
     ENABLE_APP_SANDBOX: NO
 packages:
   Sparkle:
@@ -85,6 +85,33 @@ targets:
       - Sources/Utter/Pipeline/Providers.swift
       - Sources/Utter/Audio/RecordedAudio.swift
       - Sources/Utter/Insertion/InsertionTypes.swift
+  UtterMeetingCheck:
+    type: tool
+    platform: macOS
+    sources:
+      - Sources/MeetingCheck
+      - Sources/Utter/Meetings/SpeechSegmenter.swift
+      - Sources/Utter/Meetings/MeetingTranscriber.swift
+      - Sources/Utter/Meetings/MeetingAssistant.swift
+      - Sources/Utter/Meetings/MeetingStore.swift
+      - Sources/Utter/Meetings/MeetingTemplates.swift
+      - Sources/Utter/Cloud/ClaudeCleanupProvider.swift
+      - Sources/Utter/Cloud/CleanupPrompt.swift
+      - Sources/Utter/Cloud/GroqCleanupProvider.swift
+      - Sources/Utter/Cloud/GroqUsage.swift
+      - Sources/Utter/Cloud/CloudTransport.swift
+      - Sources/Utter/Cloud/CloudTranscriptionProvider.swift
+      - Sources/Utter/Cloud/Credentials.swift
+      - Sources/Utter/Features/FeatureSettings.swift
+      - Sources/Utter/Local/LocalModel.swift
+      - Sources/Utter/Pipeline/Providers.swift
+      - Sources/Utter/Audio/RecordedAudio.swift
+      - Sources/Utter/Insertion/InsertionTypes.swift
+    dependencies:
+      - sdk: libsqlite3.tbd
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.utter.meeting-check
   UtterTests:
     type: bundle.unit-test
     platform: macOS
@@ -122,5 +149,11 @@ schemes:
     build:
       targets:
         UtterCleanupCheck: all
+    run:
+      config: Debug
+  UtterMeetingCheck:
+    build:
+      targets:
+        UtterMeetingCheck: all
     run:
       config: Debug

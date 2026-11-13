@@ -21,11 +21,13 @@ final class AudioBufferStore: @unchecked Sendable {
     private var currentLevel: Float = 0
     private var errorMessage: String?
     private var buffers = 0
-    private let maximumSamples = RecordedAudio.sampleRate * 300
+    private let maximumSamples: Int
 
-    init(outputFormat: AVAudioFormat, converter: AVAudioConverter) {
+    /// `maximumSamples` caps what is held at once; a caller that drains regularly never reaches it.
+    init(outputFormat: AVAudioFormat, converter: AVAudioConverter, maximumSamples: Int = RecordedAudio.sampleRate * 300) {
         self.outputFormat = outputFormat
         self.converter = converter
+        self.maximumSamples = maximumSamples
         samples.reserveCapacity(RecordedAudio.sampleRate * 30)
     }
 
@@ -108,6 +110,14 @@ final class AudioBufferStore: @unchecked Sendable {
     var bufferCount: Int { lock.withLock { buffers } }
     var failure: String? { lock.withLock { errorMessage } }
     func audio() -> RecordedAudio { lock.withLock { RecordedAudio(samples: samples) } }
+    /// Hands over everything converted so far and starts again from empty, for long recordings read in pieces.
+    func drain() -> [Float] {
+        lock.withLock {
+            let taken = samples
+            samples.removeAll(keepingCapacity: true)
+            return taken
+        }
+    }
 }
 
 @MainActor

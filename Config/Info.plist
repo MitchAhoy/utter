@@ -27,7 +27,9 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Utter uses your microphone while you hold the dictation shortcut to turn speech into text.</string>
+    <string>Utter uses your microphone while you hold the dictation shortcut, and while you record meeting notes, to turn speech into text.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Utter listens to call audio playing on this Mac while you record meeting notes, so it can transcribe the other people. Audio is never saved.</string>
     <key>SUFeedURL</key>
     <string>$(UTTER_UPDATE_FEED)</string>
     <key>SUPublicEDKey</key>

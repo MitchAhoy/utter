@@ -28,6 +28,24 @@ enum AudioInputDevices {
         }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    /// The microphone macOS is currently set to use.
+    static func defaultInput() -> AudioInputDevice? {
+        let id = defaultDevice(kAudioHardwarePropertyDefaultInputDevice)
+        return available().first { $0.deviceID == id }
+    }
+
+    /// The device macOS is currently playing through; changes when headphones connect.
+    static func defaultOutputID() -> AudioDeviceID { defaultDevice(kAudioHardwarePropertyDefaultOutputDevice) }
+
+    private static func defaultDevice(_ selector: AudioObjectPropertySelector) -> AudioDeviceID {
+        var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
+                                                mElement: kAudioObjectPropertyElementMain)
+        var id = AudioDeviceID(kAudioObjectUnknown)
+        var bytes = UInt32(MemoryLayout<AudioDeviceID>.size)
+        AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &bytes, &id)
+        return id
+    }
+
     private static func stringProperty(_ id: AudioDeviceID, selector: AudioObjectPropertySelector) -> String? {
         var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
                                                 mElement: kAudioObjectPropertyElementMain)

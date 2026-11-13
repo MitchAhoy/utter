@@ -1,14 +1,15 @@
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, transcription, cleanup, dictionary, snippets, styles, commands, history, permissions, about
+    case general, transcription, cleanup, dictionary, snippets, styles, commands, history, meetings, permissions, about
     var id: String { rawValue }
     var title: String { self == .styles ? "App Styles" : rawValue.capitalized }
     var icon: String {
         switch self {
         case .general: "gearshape"; case .transcription: "waveform"; case .cleanup: "text.badge.checkmark"
         case .dictionary: "character.book.closed"; case .snippets: "text.insert"; case .styles: "textformat"
-        case .commands: "command"; case .history: "clock"; case .permissions: "lock.shield"; case .about: "info.circle"
+        case .commands: "command"; case .history: "clock"; case .meetings: "person.2.wave.2"
+        case .permissions: "lock.shield"; case .about: "info.circle"
         }
     }
 }
@@ -38,6 +39,7 @@ struct RecordingSettingsView: View {
                     case .styles: AppStylesSettingsView(settings: model.features)
                     case .commands: CommandSettingsView(model: model, settings: model.features, cloud: model.cloud)
                     case .history: HistorySettingsView(settings: model.features, history: model.history, cloud: model.cloud)
+                    case .meetings: MeetingSettingsView(settings: model.meetingSettings) { model.onOpenMeetings?() }
                     case .permissions: PermissionsSettingsView(model: model)
                     case .about: AboutSettingsView(model: model, updates: model.updates)
                     }

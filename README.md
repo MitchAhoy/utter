@@ -1,6 +1,6 @@
 # Utter
 
-Native, open-source push-to-talk dictation for macOS 14+. Swift 6, SwiftUI and AppKit; Apple Silicon first. MIT licensed.
+Native, open-source push-to-talk dictation and bot-free meeting notes for macOS 14.2+. Swift 6, SwiftUI and AppKit; Apple Silicon first. MIT licensed.
 
 ![Illustration of Utter's hold, release and insertion flow](docs/dictation-flow.gif)
 
@@ -40,6 +40,21 @@ Under Cleanup, enable cleanup and choose a service: **Groq** (the default, `qwen
 **Groq allowance.** The menu bar menu shows how many Groq requests you have left today for speech-to-text and for cleanup, read from Groq's replies to your own dictations (no extra requests). The free tier refills gradually through the day; when one model is down to its last 10%, the dictation popup also says how many are left.
 
 **Speed.** Utter keeps one network session for the whole app and opens the connection to your transcription and cleanup services when you press the shortcut, so connection setup is done by the time you release. Quiet lead-in and tail are trimmed before upload. When Accessibility can read the focused field, Utter adds a separating space after existing text, and (with **Use text before the cursor**, on by default) sends up to 300 characters before the cursor so cleanup can continue a sentence. Password fields are never read.
+
+## Meeting notes
+
+Utter can also take notes on calls, the way Granola does, without a bot joining. Choose **Start Meeting Notes** from the menu bar icon (or click **Take Notes** on the "Meeting detected" popup that appears when Chrome, Zoom, Teams, Slack, FaceTime or another call app starts using the microphone). Utter then transcribes your microphone as **Me** and whatever the Mac is playing as **Them**, so it works with Google Meet or any other call. Requires macOS 14.2.
+
+- **Permission:** the first recording asks once for *System Audio Recording*. If the transcript only ever shows "Me", allow Utter under System Settings → Privacy & Security → Screen & System Audio Recording → System Audio Recording Only.
+- **Live transcript:** speech appears a few seconds after a pause, with search, copy and per-line delete. Dictation still works during a meeting and is left out of the transcript.
+- **Your notes and enhanced notes:** type as much or as little as you like under **My notes**. When the meeting ends, **Enhanced** is written from the transcript and your notes using the chosen template (General, 1:1, Stand-up, Sales call, Interview, or your own). Each point links to its moment in the transcript. Choosing another template rewrites the notes; your own notes are never changed.
+- **Ask:** the box under a meeting answers from that meeting only, during or after it, and says when something wasn't discussed. **All meetings** answers across every saved meeting. Type `/` for recipes such as Action items or Follow-up email; add your own in Settings → Meetings.
+- **Stopping:** Stop in the window or menu, or automatically when the call app releases the microphone, after 15 minutes of silence, or when the Mac sleeps. **Resume** adds to the same meeting.
+- **Storage and privacy:** audio is held in memory only until it is transcribed and is never written to disk. Transcripts, notes and questions are kept in `~/Library/Application Support/Utter/Meetings/meetings.sqlite` (owner-only). Deleting a meeting removes all of it. Meetings follow your transcription mode: cloud modes upload speech chunks to your transcription provider; on-device mode keeps speech on this Mac. Enhanced notes and answers need cloud access and a Groq key (`openai/gpt-oss-120b`). Tell the people you meet that you are transcribing; Utter reminds you once.
+- **Groq free tier:** a 30-minute call is expected to use roughly 100 to 200 transcription requests (estimated from chunk length, not yet measured on a real call), inside the daily allowance. Long meetings are condensed in parts while they run because the free tier allows about 8,000 tokens a minute per model.
+- **Not included:** shared links, team workspaces, CRM/Slack/Notion integrations, calendar sync, and per-person speaker names (everyone remote is "Them").
+
+`UtterMeetingCheck` runs a scripted two-voice call through the real services and checks word accuracy, Me/Them attribution, the action items in the notes, and that answers come only from the meeting: `GROQ_API_KEY=… build/Build/Products/Debug/UtterMeetingCheck` after building that scheme.
 
 ## Optional features
 
